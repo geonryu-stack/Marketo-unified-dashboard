@@ -25,6 +25,7 @@ const transporter = nodemailer.createTransport({
 const SMTP_FROM = process.env.SMTP_FROM || process.env.SMTP_USER || '';
 
 export function generateToken(action: string, campaignId: string, expiresAt: number): string {
+  if (!SECRET) throw new Error('[approval-mailer] APPROVAL_SECRET is not set');
   return crypto
     .createHmac('sha256', SECRET)
     .update(`${action}:${campaignId}:${expiresAt}`)
@@ -36,11 +37,10 @@ export function verifyToken(action: string, campaignId: string, token: string, e
   const expiresAt = parseInt(expires, 10);
   if (isNaN(expiresAt) || Date.now() > expiresAt) return false;
   const expected = generateToken(action, campaignId, expiresAt);
-  try {
-    return crypto.timingSafeEqual(Buffer.from(token, 'hex'), Buffer.from(expected, 'hex'));
-  } catch {
-    return false;
-  }
+  const tokenBuf = Buffer.from(token, 'hex');
+  const expectedBuf = Buffer.from(expected, 'hex');
+  if (tokenBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(tokenBuf, expectedBuf);
 }
 
 function escapeHtml(str: string): string {
@@ -77,10 +77,10 @@ export async function sendApprovalEmail(
     <tr><td style="padding:6px 0;color:#64748b">대상자</td><td style="padding:6px 0"><strong>${campaign.lead_count ?? 0}명</strong></td></tr>
   </table>
   <div style="margin:24px 0">
-    <a href="${approveUrl}" style="display:inline-block;padding:12px 24px;background:#16a34a;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;margin-right:12px">✅ 발송 승인</a>
-    <a href="${rejectUrl}" style="display:inline-block;padding:12px 24px;background:#fff;color:#475569;text-decoration:none;border-radius:8px;font-weight:600;border:1px solid #cbd5e1">🔄 재검토</a>
+    <a href="${escapeHtml(approveUrl)}" style="display:inline-block;padding:12px 24px;background:#16a34a;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;margin-right:12px">✅ 발송 승인</a>
+    <a href="${escapeHtml(rejectUrl)}" style="display:inline-block;padding:12px 24px;background:#fff;color:#475569;text-decoration:none;border-radius:8px;font-weight:600;border:1px solid #cbd5e1">🔄 재검토</a>
   </div>
-  <p style="font-size:12px;color:#94a3b8">이 링크는 72시간 후 만료됩니다.<br>앱에서도 직접 처리할 수 있습니다: <a href="${appUrl}/campaigns/${campaign.id}">${appUrl}/campaigns/${campaign.id}</a></p>
+  <p style="font-size:12px;color:#94a3b8">이 링크는 72시간 후 만료됩니다.<br>앱에서도 직접 처리할 수 있습니다: <a href="${escapeHtml(appUrl)}/campaigns/${escapeHtml(campaign.id)}">${escapeHtml(appUrl)}/campaigns/${escapeHtml(campaign.id)}</a></p>
 </body>
 </html>`;
 
