@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return pageHtml('승인 완료', `
       <h2 style="color:#16a34a">승인되었습니다 ✅</h2>
       <p>캠페인이 Marketo에 예약되었습니다.</p>
-      <a href="${APP_URL}/campaigns/${id}" style="display:inline-block;margin-top:12px;padding:10px 20px;background:#fff;color:#475569;border:1px solid #cbd5e1;border-radius:8px;text-decoration:none;font-weight:600">앱에서 캠페인 확인 →</a>
+      <a href="${APP_URL}/campaigns/${escapeHtml(id)}" style="display:inline-block;margin-top:12px;padding:10px 20px;background:#fff;color:#475569;border:1px solid #cbd5e1;border-radius:8px;text-decoration:none;font-weight:600">앱에서 캠페인 확인 →</a>
     `);
   }
 
