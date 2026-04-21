@@ -43,7 +43,7 @@ export function verifyToken(action: string, campaignId: string, token: string, e
   return crypto.timingSafeEqual(tokenBuf, expectedBuf);
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
