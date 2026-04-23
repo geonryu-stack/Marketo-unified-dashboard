@@ -7,8 +7,8 @@
  *  Step 3   세그먼트 고정 Static List 갱신 (기존 멤버 제거 → 새 리드 추가)
  *  Step 4   테스트 메일 발송 → status = awaiting_approval → 반환
  *
- * My Token 주입은 Phase 2(approve/route.ts)에서 SC 예약 시 inline으로 처리됩니다.
- * Program My Token API는 이 계정에서 비활성(610)이므로 사용하지 않습니다.
+ * Program My Token API(/rest/asset/v1/program/{id}/tokens.json)는 EP ID가 올바르게
+ * 설정된 경우 Step 3.5에서 사용합니다. 실패 시 non-fatal로 처리합니다.
  *
  * Phase 2 (담당자 승인) 는 /api/campaigns/[id]/approve 에서 처리합니다.
  * CONSTRAINT-07: 각 단계마다 job_logs에 기록

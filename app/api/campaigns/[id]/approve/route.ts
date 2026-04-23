@@ -126,7 +126,7 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const failMsg = `Marketo Email Program 예약 실패: ${msg}. Marketo UI에서 Email Program(ID: ${epId})을 직접 승인/예약해주세요.`;
-    log(appDb, id, 'ep_schedule', 'error', failMsg);
+    log(appDb, id, 'ep_flow', 'error', failMsg);
     setStatus(appDb, id, 'failed', failMsg);
     return Response.json({ success: false, error: failMsg }, { status: 500 });
   }
