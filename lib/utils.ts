@@ -172,13 +172,14 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** 주어진 날짜가 속한 주의 월요일 날짜를 'YYYY-MM-DD'로 반환 */
+/** 주어진 날짜가 속한 주의 월요일 날짜를 'YYYY-MM-DD'로 반환 (로컬 날짜 기준) */
 export function getWeekStart(date: Date = new Date()): string {
   const d = new Date(date);
   const day = d.getDay(); // 0=일, 1=월, ...6=토
   const diff = day === 0 ? -6 : 1 - day; // 월요일로 조정
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /** weekStart(YYYY-MM-DD, 월요일)로부터 7일(월~일) 날짜 배열 반환 */

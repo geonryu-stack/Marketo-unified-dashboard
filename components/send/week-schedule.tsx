@@ -20,7 +20,9 @@ export function WeekSchedule({ group, initialWeekStart, initialSchedules, emails
   const [testing, setTesting] = useState(false);
   const [scheduling, setScheduling] = useState(false);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const _now = new Date();
+  const _pad = (n: number) => String(n).padStart(2, '0');
+  const today = `${_now.getFullYear()}-${_pad(_now.getMonth() + 1)}-${_pad(_now.getDate())}`;
   const currentWeekStart = getWeekStart();
   const weekDates = getWeekDates(weekStart);
 
