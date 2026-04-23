@@ -124,6 +124,8 @@ function initSchema(db: Database.Database): void {
     `ALTER TABLE segments ADD COLUMN is_recurring INTEGER DEFAULT 0`,
     `ALTER TABLE segments ADD COLUMN send_day_of_week INTEGER DEFAULT 1`,
     `ALTER TABLE segments ADD COLUMN recurring_send_time TEXT DEFAULT '10:00'`,
+    `ALTER TABLE segments ADD COLUMN marketo_email_program_id TEXT DEFAULT ''`,
+    `ALTER TABLE campaigns ADD COLUMN marketo_email_program_id TEXT`,
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* 이미 존재하는 컬럼 — 무시 */ }

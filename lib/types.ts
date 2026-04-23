@@ -33,6 +33,7 @@ export interface Segment {
   last_extracted_at: string | null;
   marketo_program_id: string;        // Marketo Email Program ID (발송 + 폴더 정리용)
   marketo_audience_list_id: string;  // Email Program Audience의 고정 Static List ID
+  marketo_email_program_id: string;   // Marketo Email Program ID — RTZ 스케줄 + My Token 주입용
   is_recurring: number;              // SQLite INTEGER 0|1
   send_day_of_week: number;          // 0=일 ~ 6=토
   recurring_send_time: string;       // 'HH:MM' e.g. '10:00'
@@ -97,6 +98,7 @@ export interface Campaign {
   marketo_list_id: string | null;       // 세그먼트 고정 Static List ID (audience)
   marketo_list_name: string | null;
   marketo_cloned_email_id: string | null;
+  marketo_email_program_id: string | null;  // Phase 2 후 EP ID 기록 — cancel 참조용
   marketo_campaign_id: string | null;   // Smart Campaign fallback 예약 시 SC ID 저장 — cancel 경로에서 분기 판단에 사용
 
   status: CampaignStatus;
