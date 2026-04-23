@@ -411,11 +411,15 @@ export async function removeLeadsFromList(listId: number, leadIds: number[]): Pr
 // Email Asset List (새 발송 대시보드용)
 // ────────────────────────────────────────────────────
 
-/** Marketo 이메일 에셋 목록 조회 (approved 상태만, 최대 200개, 최신 수정순) */
-export async function getMarketoEmails(): Promise<MarketoEmailItem[]> {
+/** Marketo 이메일 에셋 목록 조회 (approved 상태만, 최대 200개, 최신 수정순)
+ *  folderId가 지정되면 해당 Folder 내 에셋만 반환 */
+export async function getMarketoEmails(folderId?: number): Promise<MarketoEmailItem[]> {
+  const folderParam = folderId
+    ? `&folder=${encodeURIComponent(JSON.stringify({ id: folderId, type: 'Folder' }))}`
+    : '';
   const data = await mkRequest<{ result: MarketoEmailItem[] }>(
     'GET',
-    '/rest/asset/v1/emails.json?status=approved&maxReturn=200&orderBy=updatedAt&sortOrder=DESC'
+    `/rest/asset/v1/emails.json?status=approved&maxReturn=200&orderBy=updatedAt&sortOrder=DESC${folderParam}`
   );
   return data.result ?? [];
 }
