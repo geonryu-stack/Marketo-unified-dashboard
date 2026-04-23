@@ -1,0 +1,35 @@
+<h2>질문 1 — 대시보드에서 "에셋"은 어떻게 선택하나요?</h2>
+<p class="subtitle">Marketo에서 직접 에셋을 만들기로 했는데, 대시보드에서는 어떤 방식으로 에셋을 고르게 할까요?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>그룹 선택만 하면 됨 (에셋 선택 불필요)</h3>
+      <p>4개 그룹(Active A/B, FP, NP)에 각각 고정된 Marketo 캠페인 ID가 있고, 어떤 이메일 디자인을 쓸지는 Marketo에서 직접 변경한다. 대시보드에서는 그룹 선택 → URL 입력 → 시간 설정 → 예약만 한다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Marketo API에서 에셋 목록을 불러와서 선택</h3>
+      <p>Marketo에 미리 만들어둔 이메일/캠페인 목록을 API로 가져와 드롭다운으로 표시. 대시보드에서 어떤 이메일 디자인을 쓸지 선택하고, 어느 그룹(Smart Campaign)으로 발송할지도 선택한다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>앱 내 에셋 라이브러리 유지 (현재 방식 유사)</h3>
+      <p>현재처럼 앱 DB에 에셋을 등록해두되, 내용(이미지/텍스트)은 Marketo 에셋과 1:1로 연결. URL 토큰 이름만 저장하고, 실제 에셋 편집은 Marketo에서 한다.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:2rem; padding:1rem; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+  <p class="label">현재 상황 참고</p>
+  <p style="margin-top:0.5rem; font-size:0.875rem; color:#475569;">
+    현재 4개 그룹은 각각 고정된 Smart Campaign ID가 있습니다:<br>
+    Active A → 7610 / Active B → 7611 / FP Active → 7613 / NP Active → 7612<br>
+    발송 시 <code>scheduleCampaign(campaignId, [{name:"{{my.rewardUrl}}", value: url}])</code>로 URL 토큰 주입
+  </p>
+</div>

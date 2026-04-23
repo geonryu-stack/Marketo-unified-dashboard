@@ -51,6 +51,10 @@ export async function POST(req: NextRequest) {
 
   for (const schedule of targets) {
     try {
+      if (!schedule.marketo_email_id) {
+        results.push({ date: schedule.send_date, success: false, error: '에셋을 먼저 선택해주세요.' });
+        continue;
+      }
       for (const addr of TEST_EMAILS) {
         await sendSampleEmail(schedule.marketo_email_id, addr);
       }

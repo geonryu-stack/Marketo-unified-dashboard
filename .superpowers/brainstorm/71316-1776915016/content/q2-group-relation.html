@@ -1,0 +1,19 @@
+<h2>질문 2 — 에셋 하나를 몇 개 그룹에 보내나요?</h2>
+<p class="subtitle">한 번 발송을 설정할 때, 같은 이메일 디자인을 여러 그룹에 동시에 보낼 건가요?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>항상 1개 그룹에만 발송</h3>
+      <p>한 번에 하나의 그룹(Active A, Active B, FP Active, NP Active 중 하나)만 선택해서 예약한다. 두 그룹에 보내고 싶으면 발송을 2번 만든다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>여러 그룹 동시 선택 가능</h3>
+      <p>같은 에셋 + URL로 Active A, FP Active 등 여러 그룹을 한 번에 체크해서 예약한다. 내부적으로는 그룹별 Smart Campaign이 각각 실행된다.</p>
+    </div>
+  </div>
+</div>

@@ -44,7 +44,8 @@ export async function PUT(req: NextRequest) {
   };
 
   const { groupId, date, marketoEmailId, marketoEmailName, sendTime, timezone } = body;
-  if (!groupId || !date || !marketoEmailId || !sendTime) {
+  // marketoEmailId는 0도 허용 (에셋 미선택 상태로 슬롯 생성 후 드롭다운에서 선택)
+  if (!groupId || !date || marketoEmailId == null || !sendTime) {
     return Response.json({ success: false, error: 'groupId, date, marketoEmailId, sendTime 필수' }, { status: 400 });
   }
 

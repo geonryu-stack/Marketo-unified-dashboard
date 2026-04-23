@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>새 발송 — v3</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }
+  .shell { display: flex; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar { width: 200px; background: #1e293b; padding: 20px 0; flex-shrink: 0; }
+  .sidebar-logo { padding: 0 20px 20px; font-weight: 700; font-size: 14px; color: #f1f5f9; border-bottom: 1px solid #334155; }
+  .sidebar-logo span { display: block; font-size: 10px; font-weight: 400; color: #64748b; margin-top: 2px; }
+  .nav-item { padding: 10px 20px; font-size: 13px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  .nav-item.active { background: #4f46e5; color: white; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; min-height: 100vh; overflow: hidden; }
+
+  /* Page header */
+  .page-header { padding: 28px 32px 16px; border-bottom: 1px solid #e2e8f0; background: white; }
+  .page-title { font-size: 22px; font-weight: 700; color: #0f172a; }
+  .page-subtitle { font-size: 13px; color: #64748b; margin-top: 4px; }
+
+  /* Body = group panel + day content side by side */
+  .body { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Group panel (left) ── */
+  .group-panel {
+    width: 220px; flex-shrink: 0;
+    background: white; border-right: 1px solid #e2e8f0;
+    display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .group-panel-header {
+    padding: 14px 16px 10px;
+    font-size: 11px; font-weight: 600; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .group-item {
+    padding: 12px 16px; cursor: pointer; border-left: 3px solid transparent;
+    transition: all 0.12s; border-bottom: 1px solid #f8fafc;
+  }
+  .group-item:hover { background: #f8fafc; }
+  .group-item.active { background: #eef2ff; border-left-color: #6366f1; }
+  .group-name { font-size: 14px; font-weight: 600; color: #1e293b; }
+  .group-item.active .group-name { color: #4f46e5; }
+  .group-meta { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+  .group-badge {
+    display: inline-block; margin-top: 5px;
+    padding: 2px 6px; border-radius: 8px; font-size: 10px; font-weight: 600;
+  }
+  .gb-active { background: #e0e7ff; color: #4338ca; }
+  .gb-empty  { background: #f1f5f9; color: #94a3b8; }
+
+  /* Add group hint at bottom */
+  .group-add {
+    margin: 12px; padding: 10px; border: 1.5px dashed #d1d5db; border-radius: 8px;
+    text-align: center; font-size: 12px; color: #94a3b8; cursor: pointer;
+  }
+  .group-add:hover { border-color: #a5b4fc; color: #6366f1; background: #f5f5ff; }
+
+  /* ── Day content (right) ── */
+  .day-content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+  .content-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+  }
+  .content-title { font-size: 15px; font-weight: 700; color: #0f172a; }
+  .content-subtitle { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+  /* Week navigation */
+  .week-nav {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: white; border: 1px solid #e2e8f0;
+    border-radius: 10px; font-size: 13px; font-weight: 600; color: #374151;
+  }
+  .week-nav button {
+    background: none; border: none; cursor: pointer; color: #6b7280;
+    font-size: 16px; padding: 0 4px; line-height: 1;
+  }
+  .week-nav button:hover { color: #4f46e5; }
+
+  /* Day rows */
+  .day-row {
+    background: white; border: 1.5px solid #e2e8f0; border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 8px; display: flex;
+    align-items: center; gap: 14px; transition: all 0.15s;
+  }
+  .day-row.active-row { border-color: #c7d2fe; background: #fafafe; }
+  .day-row.inactive-row { opacity: 0.45; }
+  .day-row.weekend .day-name { color: #ef4444; }
+  .day-row.weekend.active-row .day-name { color: #dc2626; }
+
+  .toggle { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .toggle-slider { position: absolute; inset: 0; background: #d1d5db; border-radius: 22px; cursor: pointer; transition: background 0.2s; }
+  .toggle-slider::before {
+    content: ''; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px;
+    background: white; border-radius: 50%; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  .toggle input:checked + .toggle-slider { background: #6366f1; }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+  .day-info { width: 52px; flex-shrink: 0; }
+  .day-name { font-size: 13px; font-weight: 700; color: #0f172a; }
+  .day-date { font-size: 11px; color: #94a3b8; margin-top: 1px; }
+
+  .fields { display: flex; gap: 10px; flex: 1; align-items: flex-end; }
+  .f { display: flex; flex-direction: column; }
+  .f label { font-size: 10px; font-weight: 500; color: #6b7280; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .f select, .f input[type="url"], .f input[type="time"] {
+    padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 7px;
+    font-size: 13px; color: #1e293b; background: white; outline: none; height: 34px;
+  }
+  .f select:focus, .f input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.1); }
+  .f.asset { flex: 2; min-width: 180px; }
+  .f.url   { flex: 2; min-width: 160px; }
+  .f.time  { width: 86px; }
+  .f.tz    { width: 84px; }
+
+  .tz-toggle { display: flex; border: 1px solid #d1d5db; border-radius: 7px; overflow: hidden; height: 34px; }
+  .tz-btn { flex: 1; font-size: 11px; font-weight: 700; text-align: center; cursor: pointer; border: none; background: white; color: #9ca3af; }
+  .tz-btn.on { background: #6366f1; color: white; }
+
+  .status-col { width: 90px; flex-shrink: 0; display: flex; justify-content: flex-end; }
+  .chip { display: inline-flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .chip-ok     { background: #f0fdf4; color: #065f46; border: 1px solid #86efac; }
+  .chip-wait   { background: #fef9c3; color: #854d0e; border: 1px solid #fde68a; }
+
+  /* Buttons */
+  .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; white-space: nowrap; }
+  .btn-outline  { background: white; border: 1px solid #d1d5db; color: #374151; }
+  .btn-test-all { background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
+  .btn-test-all:hover { background: #d1fae5; }
+  .btn-primary  { background: #4f46e5; color: white; }
+  .btn-primary:hover { background: #4338ca; }
+
+  /* Bottom bar */
+  .bottom-bar {
+    background: white; border-top: 1px solid #e2e8f0;
+    padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.04);
+  }
+  .summary { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-green  { background: #dcfce7; color: #065f46; }
+  .badge-yellow { background: #fef9c3; color: #854d0e; }
+
+  .hint { font-size: 12px; color: #94a3b8; margin-top: 12px; padding: 10px 14px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">📬 Marketo 자동화<span>Send Dashboard</span></div>
+    <div style="margin-top:12px">
+      <div class="nav-item">📊 대시보드</div>
+      <div class="nav-item active">✉️ 새 발송</div>
+      <div class="nav-item">📋 발송 이력</div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Page header -->
+    <div class="page-header">
+      <div class="page-title">새 발송 설정</div>
+      <div class="page-subtitle">발송 그룹을 선택하고 이번 주 요일별 에셋 · URL · 발송 시각을 설정하세요.</div>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+
+      <!-- Group panel (left) -->
+      <aside class="group-panel">
+        <div class="group-panel-header">발송 그룹</div>
+
+        <div class="group-item active">
+          <div class="group-name">Active A</div>
+          <div class="group-meta">SC #7610 · 약 12,400명</div>
+          <span class="group-badge gb-active">화 · 목 설정됨</span>
+        </div>
+        <div class="group-item">
+          <div class="group-name">Active B</div>
+          <div class="group-meta">SC #7611 · 약 9,800명</div>
+          <span class="group-badge gb-empty">미설정</span>
+        </div>
+        <div class="group-item">
+          <div class="group-name">FP Active</div>
+          <div class="group-meta">SC #7613 · 약 5,200명</div>
+          <span class="group-badge gb-empty">미설정</span>
+        </div>
+        <div class="group-item">
+          <div class="group-name">NP Active</div>
+          <div class="group-meta">SC #7612 · 약 3,100명</div>
+          <span class="group-badge gb-empty">미설정</span>
+        </div>
+
+        <!-- 미래 그룹이 추가되면 자동으로 목록에 쌓임 -->
+        <div style="flex:1"></div>
+        <div class="group-add">+ 그룹 추가 예정<br><span style="font-size:10px">Marketo SC 등록 후 자동 반영</span></div>
+      </aside>
+
+      <!-- Day content (right) -->
+      <div class="day-content">
+
+        <div class="content-header">
+          <div>
+            <div class="content-title">Active A — 주간 발송 스케줄</div>
+            <div class="content-subtitle">SC #7610 · 활성 2일 / 전체 7일</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <div class="week-nav">
+              <button>‹</button>
+              2025년 4월 28일 주
+              <button>›</button>
+            </div>
+            <button class="btn btn-test-all">🔬 전체 테스트 발송</button>
+          </div>
+        </div>
+
+        <!-- Mon -->
+        <div class="day-row inactive-row">
+          <label class="toggle"><input type="checkbox"><div class="toggle-slider"></div></label>
+          <div class="day-info"><div class="day-name">월</div><div class="day-date">4/28</div></div>
+          <div class="fields" style="opacity:.35;pointer-events:none;">
+            <div class="f asset"><label>에셋</label><select><option>에셋 선택...</option></select></div>
+            <div class="f url"><label>보상 URL</label><input type="url" placeholder="https://..."></div>
+            <div class="f time"><label>발송 시각</label><input type="time" value="10:00"></div>
+            <div class="f tz"><label>시간대</label><div class="tz-toggle"><button class="tz-btn on">RTZ</button><button class="tz-btn">KST</button></div></div>
+          </div>
+          <div class="status-col"></div>
+        </div>
+
+        <!-- Tue — active, tested -->
+        <div class="day-row active-row">
+          <label class="toggle"><input type="checkbox" checked><div class="toggle-slider"></div></label>
+          <div class="day-info"><div class="day-name">화</div><div class="day-date">4/29</div></div>
+          <div class="fields">
+            <div class="f asset"><label>에셋</label><select><option selected>🎁 4월 5주차 복귀 유저</option><option>🎯 신규 가입 축하</option><option>💎 VIP 혜택 안내</option></select></div>
+            <div class="f url"><label>보상 URL</label><input type="url" value="https://rewards.example.com/abc123"></div>
+            <div class="f time"><label>발송 시각</label><input type="time" value="10:00"></div>
+            <div class="f tz"><label>시간대</label><div class="tz-toggle"><button class="tz-btn on">RTZ</button><button class="tz-btn">KST</button></div></div>
+          </div>
+          <div class="status-col"><span class="chip chip-ok">✅ 완료</span></div>
+        </div>
+
+        <!-- Wed -->
+        <div class="day-row inactive-row">
+          <label class="toggle"><input type="checkbox"><div class="toggle-slider"></div></label>
+          <div class="day-info"><div class="day-name">수</div><div class="day-date">4/30</div></div>
+          <div class="fields" style="opacity:.35;pointer-events:none;">
+            <div class="f asset"><label>에셋</label><select><option>에셋 선택...</option></select></div>
+            <div class="f url"><label>보상 URL</label><input type="url" placeholder="https://..."></div>
+            <div class="f time"><label>발송 시각</label><input type="time" value="10:00"></div>
+            <div class="f tz"><label>시간대</label><div class="tz-toggle"><button class="tz-btn on">RTZ</button><button class="tz-btn">KST</button></div></div>
+          </div>
+          <div class="status-col"></div>
+        </div>
+
+        <!-- Thu — active, pending test -->
+        <div class="day-row active-row">
+          <label class="toggle"><input type="checkbox" checked><div class="toggle-slider"></div></label>
+          <div class="day-info"><div class="day-name">목</div><div class="day-date">5/1</div></div>
+          <div class="fields">
+            <div class="f asset"><label>에셋</label><select><option>🎁 4월 5주차 복귀 유저</option><option selected>🎯 신규 가입 축하</option><option>💎 VIP 혜택 안내</option></select></div>
+            <div class="f url"><label>보상 URL</label><input type="url" value="https://rewards.example.com/def456"></div>
+            <div class="f time"><label>발송 시각</label><input type="time" value="10:00"></div>
+            <div class="f tz"><label>시간대</label><div class="tz-toggle"><button class="tz-btn on">RTZ</button><button class="tz-btn">KST</button></div></div>
+          </div>
+          <div class="status-col"><span class="chip chip-wait">⏳ 대기</span></div>
+        </div>
+
+        <!-- Fri -->
+        <div class="day-row inactive-row">
+          <label class="toggle"><input type="checkbox"><div class="toggle-slider"></div></label>
+          <div class="day-info"><div class="day-name">금</div><div class="day-date">5/2</div></div>
+          <div class="fields" style="opacity:.35;pointer-events:none;">
+            <div class="f asset"><label>에셋</label><select><option>에셋 선택...</option></select></div>
+            <div class="f url"><label>보상 URL</label><input type="url" placeholder="https://..."></div>
+            <div class="f time"><label>발송 시각</label><input type="time" value="10:00"></div>
+            <div class="f tz"><label>시간대</label><div class="tz-toggle"><button class="tz-btn on">RTZ</button><button class="tz-btn">KST</button></div></div>
+          </div>
+          <div class="status-col"></div>
+        </div>
+
+        <!-- Sat -->
+        <div class="day-row inactive-row weekend">
+          <label class="toggle"><input type="checkbox"><div class="toggle-slider"></div></label>
+          <div class="day-info"><div class="day-name" style="color:#ef4444">토</div><div class="day-date">5/3</div></div>
+          <div class="fields" style="opacity:.35;pointer-events:none;">
+            <div class="f asset"><label>에셋</label><select><option>에셋 선택...</option></select></div>
+            <div class="f url"><label>보상 URL</label><input type="url" placeholder="https://..."></div>
+            <div class="f time"><label>발송 시각</label><input type="time" value="10:00"></div>
+            <div class="f tz"><label>시간대</label><div class="tz-toggle"><button class="tz-btn on">RTZ</button><button class="tz-btn">KST</button></div></div>
+          </div>
+          <div class="status-col"></div>
+        </div>
+
+        <!-- Sun -->
+        <div class="day-row inactive-row weekend">
+          <label class="toggle"><input type="checkbox"><div class="toggle-slider"></div></label>
+          <div class="day-info"><div class="day-name" style="color:#ef4444">일</div><div class="day-date">5/4</div></div>
+          <div class="fields" style="opacity:.35;pointer-events:none;">
+            <div class="f asset"><label>에셋</label><select><option>에셋 선택...</option></select></div>
+            <div class="f url"><label>보상 URL</label><input type="url" placeholder="https://..."></div>
+            <div class="f time"><label>발송 시각</label><input type="time" value="10:00"></div>
+            <div class="f tz"><label>시간대</label><div class="tz-toggle"><button class="tz-btn on">RTZ</button><button class="tz-btn">KST</button></div></div>
+          </div>
+          <div class="status-col"></div>
+        </div>
+
+        <div class="hint">💡 테스트 발송 버튼은 활성화된 날짜에만 순서대로 메일을 발송합니다. 각 날짜 확인 후 하단 예약 버튼을 누르세요.</div>
+
+        <!-- Bottom bar (inside day-content for correct sticky positioning) -->
+        <div class="bottom-bar" style="margin: 16px -24px -20px; border-radius: 0;">
+          <div class="summary">
+            <strong>Active A</strong>&nbsp;·&nbsp; 활성 <strong>2일</strong>&nbsp;·&nbsp;
+            <span class="badge badge-green">✅ 화 4/29</span>
+            <span class="badge badge-yellow">⏳ 목 5/1</span>
+            <span style="color:#94a3b8; font-size:11px; margin-left:2px;">테스트 완료 1 / 2</span>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-outline">초기화</button>
+            <button class="btn btn-primary">🚀 Active A 주간 예약하기</button>
+          </div>
+        </div>
+
+      </div><!-- /day-content -->
+    </div><!-- /body -->
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<h2>3가지 설계 방향</h2>
+<p class="subtitle">새 발송 설정 페이지의 구조를 어떻게 잡을지 — 하나를 골라주세요</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f1f5f9; padding:1rem; font-size:0.75rem; font-family:monospace; color:#475569; line-height:1.8;">
+      <div style="background:#e2e8f0; border-radius:4px; padding:4px 8px; margin-bottom:6px; font-weight:600; color:#1e293b">① 에셋 선택 + URL 입력</div>
+      <div style="background:#e2e8f0; border-radius:4px; padding:4px 8px; margin-bottom:6px; font-weight:600; color:#1e293b">② [테스트 발송] 버튼 → 확인</div>
+      <div style="background:#e2e8f0; border-radius:4px; padding:4px 8px; margin-bottom:6px; font-weight:600; color:#1e293b">③ 그룹별 날짜·시간·RTZ/KST 설정</div>
+      <div style="background:#6366f1; border-radius:4px; padding:4px 8px; color:white; font-weight:600; text-align:center">④ 전체 예약 완료</div>
+    </div>
+    <div class="card-body">
+      <h3>A. 단계별 위저드</h3>
+      <p>에셋 → 테스트 → 그룹 설정 → 예약 순서로 진행. 순서가 명확하고 실수 방지에 좋음.</p>
+      <div class="pros-cons" style="margin-top:0.75rem">
+        <div class="pros"><h4>장점</h4><ul><li>흐름이 명확</li><li>테스트 완료 확인 후에만 다음 단계 진행</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>클릭 수 많음</li><li>전체 그림이 한눈에 안 보임</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f1f5f9; padding:1rem; font-size:0.75rem; color:#475569; line-height:1.8;">
+      <div style="display:flex; gap:8px; margin-bottom:6px;">
+        <div style="flex:1; background:#e2e8f0; border-radius:4px; padding:4px 8px; font-weight:600; color:#1e293b">에셋 드롭다운</div>
+        <div style="flex:1; background:#e2e8f0; border-radius:4px; padding:4px 8px; font-weight:600; color:#1e293b">URL 입력 + [테스트]</div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
+        <div style="background:#dbeafe; border-radius:4px; padding:6px; font-size:0.7rem; font-weight:600; color:#1e40af">Active A<br><span style="font-weight:400; color:#475569">날짜·시간·RTZ□KST</span></div>
+        <div style="background:#dbeafe; border-radius:4px; padding:6px; font-size:0.7rem; font-weight:600; color:#1e40af">Active B<br><span style="font-weight:400; color:#475569">날짜·시간·RTZ□KST</span></div>
+        <div style="background:#dbeafe; border-radius:4px; padding:6px; font-size:0.7rem; font-weight:600; color:#1e40af">FP Active<br><span style="font-weight:400; color:#475569">날짜·시간·RTZ□KST</span></div>
+        <div style="background:#e2e8f0; border-radius:4px; padding:6px; font-size:0.7rem; color:#94a3b8">NP Active<br><span>비활성</span></div>
+      </div>
+      <div style="background:#6366f1; border-radius:4px; padding:4px 8px; color:white; font-weight:600; text-align:center">선택된 그룹 예약</div>
+    </div>
+    <div class="card-body">
+      <h3>B. 올인원 단일 페이지 ⭐ 추천</h3>
+      <p>에셋+URL이 상단에, 4개 그룹 카드가 하단에 한눈에 보임. 1주일치 스케줄을 한 화면에서 설정.</p>
+      <div class="pros-cons" style="margin-top:0.75rem">
+        <div class="pros"><h4>장점</h4><ul><li>전체 그림이 한눈에</li><li>빠른 설정 (스크롤 없이)</li><li>주간 스케줄링에 최적</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>정보 밀도가 높아 초기에 복잡해 보일 수 있음</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f1f5f9; padding:1rem; font-size:0.75rem; color:#475569; line-height:1.8;">
+      <div style="background:#1e293b; border-radius:4px; padding:6px 10px; margin-bottom:8px; color:#94a3b8; font-size:0.7rem">캠페인 히스토리 목록</div>
+      <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
+        <div style="background:#6366f1; border-radius:4px; padding:4px 12px; color:white; font-weight:600; font-size:0.75rem">+ 새 발송</div>
+      </div>
+      <div style="border:2px solid #6366f1; border-radius:6px; padding:8px; background:white;">
+        <div style="font-weight:600; color:#1e293b; margin-bottom:4px; font-size:0.75rem">드로어/사이드패널</div>
+        <div style="background:#e2e8f0; height:6px; border-radius:2px; margin-bottom:4px;"></div>
+        <div style="background:#e2e8f0; height:6px; border-radius:2px; margin-bottom:4px; width:70%;"></div>
+        <div style="background:#e2e8f0; height:6px; border-radius:2px;"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 히스토리 목록 + 사이드 드로어</h3>
+      <p>메인 화면에 발송 이력이 항상 보이고, 우측에서 드로어가 열려 새 발송 설정.</p>
+      <div class="pros-cons" style="margin-top:0.75rem">
+        <div class="pros"><h4>장점</h4><ul><li>이전 발송 참조하며 설정 가능</li></ul></div>
+        <div class="cons"><h4>단점</h4><ul><li>그룹 카드 공간 협소</li><li>구현 복잡도 높음</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>

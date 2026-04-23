@@ -16,16 +16,25 @@ export function SendPageClient({ initialGroups }: SendPageClientProps) {
   const [schedules, setSchedules] = useState<DaySend[]>([]);
   const [emails, setEmails] = useState<MarketoEmailItem[]>([]);
   const [emailsLoading, setEmailsLoading] = useState(true);
+  const [emailsError, setEmailsError] = useState<string | null>(null);
 
   const selectedGroup = initialGroups.find((g) => g.id === selectedGroupId) ?? initialGroups[0];
 
-  // Marketo 이메일 목록 1회 로드
-  useEffect(() => {
+  const loadEmails = useCallback(() => {
+    setEmailsLoading(true);
+    setEmailsError(null);
     fetch('/api/marketo/emails')
       .then((r) => r.json())
-      .then((json) => { if (json.success) setEmails(json.data); })
+      .then((json) => {
+        if (json.success) setEmails(json.data);
+        else setEmailsError(json.error ?? 'Marketo 에셋 목록 로드 실패');
+      })
+      .catch((e: Error) => setEmailsError(e.message))
       .finally(() => setEmailsLoading(false));
   }, []);
+
+  // Marketo 이메일 목록 1회 로드
+  useEffect(() => { loadEmails(); }, [loadEmails]);
 
   // 그룹/주 변경 시 스케줄 로드
   const loadSchedules = useCallback(async (groupId: string, ws: string) => {
@@ -55,6 +64,17 @@ export function SendPageClient({ initialGroups }: SendPageClientProps) {
       {emailsLoading ? (
         <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">
           Marketo 에셋 목록 로딩 중...
+        </div>
+      ) : emailsError ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-sm px-8 text-center">
+          <p className="text-red-500 font-medium">Marketo 에셋 목록 로드 실패</p>
+          <p className="text-slate-400 text-xs">{emailsError}</p>
+          <button
+            onClick={loadEmails}
+            className="mt-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+          >
+            다시 시도
+          </button>
         </div>
       ) : (
         <WeekSchedule

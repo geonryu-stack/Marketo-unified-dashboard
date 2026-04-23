@@ -28,8 +28,11 @@ export function buildWhereClause(
 
   for (const f of filters) {
     const def = defMap.get(f.field);
-    // 정의되지 않은 필드는 무시 (보안)
-    if (!def) continue;
+    if (!def) {
+      throw new Error(
+        `알 수 없는 필터 필드: '${f.field}'. 세그먼트 편집 화면에서 해당 조건을 제거하거나 유효한 필드로 교체하세요.`
+      );
+    }
 
     const col = def.sql_expr ?? `\`${def.field}\``;
 

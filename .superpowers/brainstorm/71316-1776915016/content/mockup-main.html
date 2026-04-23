@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>새 발송 설정 — 목업</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }
+
+  .shell { display: flex; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 220px; background: #1e293b; padding: 20px 0; flex-shrink: 0;
+    display: flex; flex-direction: column;
+  }
+  .sidebar-logo { padding: 0 20px 20px; font-weight: 700; font-size: 14px; color: #f1f5f9; border-bottom: 1px solid #334155; }
+  .sidebar-logo span { display: block; font-size: 10px; font-weight: 400; color: #64748b; margin-top: 2px; }
+  .nav-item { padding: 10px 20px; font-size: 13px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; gap: 8px; border-radius: 0; }
+  .nav-item:hover { background: #334155; color: #f1f5f9; }
+  .nav-item.active { background: #4f46e5; color: white; }
+  .nav-icon { width: 16px; text-align: center; }
+
+  /* Main content */
+  .main { flex: 1; padding: 32px; overflow-y: auto; }
+  .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; }
+  .page-title { font-size: 22px; font-weight: 700; color: #0f172a; }
+  .page-subtitle { font-size: 13px; color: #64748b; margin-top: 4px; }
+
+  /* Cards / Sections */
+  .card { background: white; border-radius: 12px; border: 1px solid #e2e8f0; padding: 24px; margin-bottom: 20px; }
+  .card-title { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+
+  /* Form elements */
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+  .field select, .field input[type="text"], .field input[type="url"] {
+    width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 8px;
+    font-size: 14px; color: #1e293b; background: white; outline: none;
+    transition: border-color 0.15s;
+  }
+  .field select:focus, .field input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.08); }
+
+  .row { display: flex; gap: 12px; }
+  .row .field { flex: 1; }
+
+  /* Test button area */
+  .test-row { display: flex; gap: 12px; align-items: flex-end; }
+  .test-row .field { flex: 1; margin-bottom: 0; }
+  .btn { padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; white-space: nowrap; }
+  .btn-outline { background: white; border: 1px solid #d1d5db; color: #374151; }
+  .btn-outline:hover { background: #f9fafb; border-color: #9ca3af; }
+  .btn-primary { background: #4f46e5; color: white; }
+  .btn-primary:hover { background: #4338ca; }
+  .btn-primary:disabled { background: #a5b4fc; cursor: not-allowed; }
+  .btn-success { background: #059669; color: white; }
+  .btn-success:hover { background: #047857; }
+  .btn-test { background: #f0fdf4; color: #065f46; border: 1px solid #86efac; }
+  .btn-test:hover { background: #dcfce7; }
+
+  .test-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; background: #f0fdf4; color: #065f46;
+    border: 1px solid #86efac; border-radius: 20px; font-size: 12px; font-weight: 500;
+    margin-left: 10px;
+  }
+
+  /* Group cards */
+  .groups-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .group-card {
+    border: 2px solid #e2e8f0; border-radius: 12px; padding: 18px;
+    transition: all 0.15s; cursor: pointer; position: relative; background: white;
+  }
+  .group-card.active { border-color: #6366f1; background: #fafafe; }
+  .group-card.inactive { opacity: 0.45; }
+
+  .group-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .group-name { font-size: 15px; font-weight: 700; color: #0f172a; }
+  .group-count { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+  /* Toggle switch */
+  .toggle { position: relative; width: 42px; height: 24px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .toggle-slider {
+    position: absolute; inset: 0; background: #d1d5db; border-radius: 24px; cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
+    background: white; border-radius: 50%; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  .toggle input:checked + .toggle-slider { background: #6366f1; }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+  .group-fields { display: flex; flex-direction: column; gap: 10px; }
+  .group-field label { font-size: 11px; font-weight: 500; color: #6b7280; margin-bottom: 4px; display: block; }
+  .group-field input[type="date"], .group-field input[type="time"] {
+    width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 7px;
+    font-size: 13px; color: #1e293b; background: white; outline: none;
+  }
+  .group-field input:focus { border-color: #6366f1; }
+
+  .tz-toggle { display: flex; border: 1px solid #d1d5db; border-radius: 7px; overflow: hidden; }
+  .tz-btn { flex: 1; padding: 7px 0; font-size: 12px; font-weight: 600; text-align: center; cursor: pointer; border: none; background: white; color: #6b7280; transition: all 0.12s; }
+  .tz-btn.on { background: #6366f1; color: white; }
+
+  .field-row { display: flex; gap: 8px; }
+  .field-row .group-field { flex: 1; }
+
+  /* Bottom bar */
+  .bottom-bar {
+    position: sticky; bottom: 0; background: white; border-top: 1px solid #e2e8f0;
+    padding: 16px 32px; display: flex; align-items: center; justify-content: space-between;
+    margin: 20px -32px -32px; box-shadow: 0 -4px 16px rgba(0,0,0,0.05);
+  }
+  .summary { font-size: 13px; color: #64748b; }
+  .summary strong { color: #0f172a; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-indigo { background: #e0e7ff; color: #4338ca; }
+  .badge-green { background: #dcfce7; color: #065f46; }
+  .badge-amber { background: #fef9c3; color: #854d0e; }
+
+  .divider { height: 1px; background: #f1f5f9; margin: 4px 0 14px; }
+
+  .asset-preview {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 8px;
+  }
+  .asset-thumb { width: 40px; height: 40px; background: linear-gradient(135deg, #6366f1, #8b5cf6); border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; }
+  .asset-info { flex: 1; }
+  .asset-info-name { font-size: 13px; font-weight: 600; color: #1e293b; }
+  .asset-info-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      📬 Marketo 자동화
+      <span>Send Dashboard</span>
+    </div>
+    <div style="margin-top: 12px;">
+      <div class="nav-item">
+        <span class="nav-icon">📊</span> 대시보드
+      </div>
+      <div class="nav-item active">
+        <span class="nav-icon">✉️</span> 새 발송
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">📋</span> 발송 이력
+      </div>
+      <div class="nav-item" style="margin-top: auto;">
+        <span class="nav-icon">⚙️</span> 설정
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">새 발송 설정</div>
+        <div class="page-subtitle">에셋 선택 → URL 입력 → 테스트 확인 → 그룹별 일정 설정 → 예약</div>
+      </div>
+    </div>
+
+    <!-- Section 1: Asset + URL -->
+    <div class="card">
+      <div class="card-title">① 에셋 & 보상 URL</div>
+
+      <div class="field">
+        <label>Marketo 에셋 선택 <span style="color:#ef4444">*</span></label>
+        <select>
+          <option>-- Marketo에서 에셋을 불러오는 중... --</option>
+          <option selected>🎁 4월 5주차 복귀 유저 이벤트 (Email_250428_ReturnUser)</option>
+          <option>🎯 5월 1주차 신규 가입 축하 (Email_250505_Welcome)</option>
+          <option>💎 VIP 전용 혜택 안내 (Email_250512_VIP)</option>
+        </select>
+      </div>
+
+      <!-- Asset preview -->
+      <div class="asset-preview">
+        <div class="asset-thumb">🎁</div>
+        <div class="asset-info">
+          <div class="asset-info-name">4월 5주차 복귀 유저 이벤트</div>
+          <div class="asset-info-meta">Marketo ID: #20481 · 마지막 수정: 2025-04-22 · 토큰: <code>{{my.rewardUrl}}</code></div>
+        </div>
+        <span class="badge badge-indigo">Token 모드</span>
+      </div>
+
+      <div class="divider" style="margin-top:16px;"></div>
+
+      <div class="test-row">
+        <div class="field" style="margin-bottom:0; flex:1">
+          <label>보상 URL <span style="color:#ef4444">*</span> <span style="font-size:11px; color:#64748b; font-weight:400">— 어드민에서 발행한 이벤트 코드 URL</span></label>
+          <input type="url" value="https://rewards.example.com/event/abc123?code=XYZ" placeholder="https://..." />
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn btn-test">🔬 테스트 발송</button>
+        </div>
+      </div>
+
+      <div style="margin-top: 10px; display: flex; align-items: center; font-size: 13px; color: #64748b;">
+        <span>테스트 메일 수신 후 이상 없으면 아래 그룹 일정을 설정하세요.</span>
+        <span class="test-badge">✅ 테스트 완료 (04-23 14:32)</span>
+      </div>
+    </div>
+
+    <!-- Section 2: Group scheduling -->
+    <div class="card">
+      <div class="card-title">② 발송 그룹 & 일정 설정</div>
+      <p style="font-size: 13px; color: #64748b; margin-bottom: 16px;">활성화할 그룹을 토글하고 각 그룹의 발송 일시를 설정하세요.</p>
+
+      <div class="groups-grid">
+
+        <!-- Active A — ON -->
+        <div class="group-card active">
+          <div class="group-header">
+            <div>
+              <div class="group-name">Active A</div>
+              <div class="group-count">SC ID: 7610 · 약 12,400명</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" checked>
+              <div class="toggle-slider"></div>
+            </label>
+          </div>
+          <div class="group-fields">
+            <div class="field-row">
+              <div class="group-field">
+                <label>발송 날짜</label>
+                <input type="date" value="2025-04-28">
+              </div>
+              <div class="group-field">
+                <label>발송 시각</label>
+                <input type="time" value="10:00">
+              </div>
+            </div>
+            <div class="group-field">
+              <label>시간대</label>
+              <div class="tz-toggle">
+                <button class="tz-btn on">RTZ</button>
+                <button class="tz-btn">KST</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active B — ON -->
+        <div class="group-card active">
+          <div class="group-header">
+            <div>
+              <div class="group-name">Active B</div>
+              <div class="group-count">SC ID: 7611 · 약 9,800명</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" checked>
+              <div class="toggle-slider"></div>
+            </label>
+          </div>
+          <div class="group-fields">
+            <div class="field-row">
+              <div class="group-field">
+                <label>발송 날짜</label>
+                <input type="date" value="2025-04-29">
+              </div>
+              <div class="group-field">
+                <label>발송 시각</label>
+                <input type="time" value="10:00">
+              </div>
+            </div>
+            <div class="group-field">
+              <label>시간대</label>
+              <div class="tz-toggle">
+                <button class="tz-btn on">RTZ</button>
+                <button class="tz-btn">KST</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FP Active — ON -->
+        <div class="group-card active">
+          <div class="group-header">
+            <div>
+              <div class="group-name">FP Active</div>
+              <div class="group-count">SC ID: 7613 · 약 5,200명</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" checked>
+              <div class="toggle-slider"></div>
+            </label>
+          </div>
+          <div class="group-fields">
+            <div class="field-row">
+              <div class="group-field">
+                <label>발송 날짜</label>
+                <input type="date" value="2025-04-30">
+              </div>
+              <div class="group-field">
+                <label>발송 시각</label>
+                <input type="time" value="14:00">
+              </div>
+            </div>
+            <div class="group-field">
+              <label>시간대</label>
+              <div class="tz-toggle">
+                <button class="tz-btn">RTZ</button>
+                <button class="tz-btn on">KST</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- NP Active — OFF -->
+        <div class="group-card inactive">
+          <div class="group-header">
+            <div>
+              <div class="group-name">NP Active</div>
+              <div class="group-count">SC ID: 7612 · 약 3,100명</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox">
+              <div class="toggle-slider"></div>
+            </label>
+          </div>
+          <div class="group-fields" style="opacity:0.4; pointer-events:none;">
+            <div class="field-row">
+              <div class="group-field">
+                <label>발송 날짜</label>
+                <input type="date">
+              </div>
+              <div class="group-field">
+                <label>발송 시각</label>
+                <input type="time">
+              </div>
+            </div>
+            <div class="group-field">
+              <label>시간대</label>
+              <div class="tz-toggle">
+                <button class="tz-btn on">RTZ</button>
+                <button class="tz-btn">KST</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <div class="summary">
+        <strong>3개 그룹</strong> 선택됨 &nbsp;·&nbsp;
+        Active A <span class="badge badge-indigo">4/28 RTZ</span> &nbsp;
+        Active B <span class="badge badge-indigo">4/29 RTZ</span> &nbsp;
+        FP Active <span class="badge badge-amber">4/30 KST</span>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-outline">취소</button>
+        <button class="btn btn-primary">🚀 선택한 그룹 예약하기</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+</body>
+</html>
