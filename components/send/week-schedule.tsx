@@ -40,7 +40,8 @@ export function WeekSchedule({ group, initialWeekStart, initialSchedules, emails
   function changeWeek(dir: -1 | 1) {
     const d = new Date(weekStart + 'T00:00:00');
     d.setDate(d.getDate() + dir * 7);
-    const newWs = d.toISOString().slice(0, 10);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const newWs = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     setWeekStart(newWs);
     loadSchedules(newWs);
   }
