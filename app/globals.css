@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --sidebar-bg: #1e293b;
+  --sidebar-fg: #e2e8f0;
 }
 
 @theme inline {
@@ -12,15 +14,40 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .chip-green {
+    background-color: rgb(240 253 244);
+    color: rgb(21 128 61);
+    border: 1px solid rgb(187 247 208);
+  }
+  .chip-blue {
+    background-color: rgb(239 246 255);
+    color: rgb(29 78 216);
+    border: 1px solid rgb(191 219 254);
+  }
+  .chip-yellow {
+    background-color: rgb(254 252 232);
+    color: rgb(161 98 7);
+    border: 1px solid rgb(253 224 71);
+  }
+  .chip-red {
+    background-color: rgb(254 242 242);
+    color: rgb(185 28 28);
+    border: 1px solid rgb(254 202 202);
+  }
 }
