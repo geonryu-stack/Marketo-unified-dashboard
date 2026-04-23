@@ -6,7 +6,7 @@
  */
 
 import { chunkArray, sleep } from './utils';
-import type { MarketoEmailItem } from './types';
+import type { MarketoEmailItem, AssetLibraryItem, Campaign } from './types';
 
 const MUNCHKIN_ID = process.env.MARKETO_MUNCHKIN_ID || '';
 const CLIENT_ID = process.env.MARKETO_CLIENT_ID || '';
@@ -326,16 +326,20 @@ export async function setProgramMyTokens(
   await mkRequest('POST', `/rest/asset/v1/program/${programId}/tokens.json`, { tokens });
 }
 
-/** Email Program 스케줄 설정 (RTZ는 Program 자체 설정에 의존) */
+/** Email Program 스케줄 설정
+ *  recipientTimeZone=true 시 수신자 현지 시간 기준 발송 (RTZ) */
 export async function scheduleEmailProgram(
   programId: number,
   startDate: string,   // "YYYY-MM-DD"
-  startTime: string    // "HH:MM:SS"
+  startTime: string,   // "HH:MM" 또는 "HH:MM:SS"
+  recipientTimeZone = false
 ): Promise<void> {
+  const body: Record<string, unknown> = { startDate, startTime };
+  if (recipientTimeZone) body.recipientTimeZone = true;
   await mkRequest(
     'PUT',
     `/rest/asset/v1/emailProgram/${programId}/schedule.json`,
-    { startDate, startTime }
+    body
   );
 }
 
@@ -344,12 +348,14 @@ export async function approveEmailProgram(programId: number): Promise<void> {
   await mkRequest('POST', `/rest/asset/v1/emailProgram/${programId}/approve.json`);
 }
 
-/** Email Program Unapprove (스케줄 수정 전 필요, 이미 unapproved여도 에러 무시) */
+/** Email Program Unapprove (스케줄 수정 전 필요)
+ *  702: already unapproved, 709: not found — 무시. 그 외 에러는 re-throw. */
 export async function unapproveEmailProgram(programId: number): Promise<void> {
   try {
     await mkRequest('POST', `/rest/asset/v1/emailProgram/${programId}/unapprove.json`);
-  } catch {
-    // 이미 unapproved 상태이거나 스케줄되지 않은 경우 — 무시
+  } catch (err) {
+    if (err instanceof Error && /Marketo error (702|709):/.test(err.message)) return;
+    throw err;
   }
 }
 
@@ -411,15 +417,54 @@ export async function removeLeadsFromList(listId: number, leadIds: number[]): Pr
 // Email Asset List (새 발송 대시보드용)
 // ────────────────────────────────────────────────────
 
-/** Marketo 이메일 에셋 목록 조회 (approved 상태만, 최대 200개, 최신 수정순)
- *  folderId가 지정되면 해당 Folder 내 에셋만 반환 */
-export async function getMarketoEmails(folderId?: number): Promise<MarketoEmailItem[]> {
-  const folderParam = folderId
-    ? `&folder=${encodeURIComponent(JSON.stringify({ id: folderId, type: 'Folder' }))}`
+/** Marketo 이메일 에셋 목록 조회 (최대 200개, 최신 수정순)
+ *  folderId가 지정되면 해당 Folder 내 approved 에셋만 반환.
+ *  709(No assets found)는 빈 배열로 처리. 그 외 오류(711 등)는 그대로 throw. */
+export async function getMarketoEmails(folderId?: number, folderType: 'Folder' | 'Program' = 'Folder'): Promise<MarketoEmailItem[]> {
+  const folderParam = Number.isFinite(folderId)
+    ? `&folder=${encodeURIComponent(JSON.stringify({ id: folderId, type: folderType }))}`
     : '';
-  const data = await mkRequest<{ result: MarketoEmailItem[] }>(
-    'GET',
-    `/rest/asset/v1/emails.json?status=approved&maxReturn=200&orderBy=updatedAt&sortOrder=DESC${folderParam}`
-  );
-  return data.result ?? [];
+  try {
+    const data = await mkRequest<{ result: MarketoEmailItem[] }>(
+      'GET',
+      `/rest/asset/v1/emails.json?maxReturn=200&status=approved&orderBy=updatedAt&sortOrder=DESC${folderParam}`
+    );
+    return data.result ?? [];
+  } catch (err) {
+    // 709 = No assets found — 폴더가 비어 있는 정상 케이스, 빈 배열 반환
+    if (err instanceof Error && /Marketo error 709:/.test(err.message)) return [];
+    // 711 등 폴더 설정 오류는 숨기지 않고 throw해 호출자가 인지하게 한다
+    throw err;
+  }
+}
+
+// ────────────────────────────────────────────────────
+// Email Program Token 페이로드 빌더
+// ────────────────────────────────────────────────────
+
+/**
+ * 에셋 + 캠페인 데이터를 Marketo Program My Token API 페이로드로 변환.
+ * SC schedule tokens({{my.xxx}}) → EP My Token API(my.xxx + type 포함)
+ */
+export function buildEpTokenPayload(
+  asset: AssetLibraryItem,
+  campaign: Campaign
+): { name: string; value: string; type: string }[] {
+  const strip = (t: string) => t.replace(/^\{\{/, '').replace(/\}\}$/, '');
+  const out: { name: string; value: string; type: string }[] = [];
+
+  if (asset.marketo_token_reward_url && campaign.reward_url)
+    out.push({ name: strip(asset.marketo_token_reward_url), value: campaign.reward_url, type: 'URL' });
+  if (asset.marketo_token_image && asset.image_url)
+    out.push({ name: strip(asset.marketo_token_image), value: asset.image_url, type: 'URL' });
+  if (asset.marketo_token_subject && asset.subject)
+    out.push({ name: strip(asset.marketo_token_subject), value: asset.subject, type: 'Text' });
+  if (asset.marketo_token_emoji && asset.emoji)
+    out.push({ name: strip(asset.marketo_token_emoji), value: asset.emoji, type: 'Text' });
+  if (asset.marketo_token_preheader && asset.preheader)
+    out.push({ name: strip(asset.marketo_token_preheader), value: asset.preheader, type: 'Text' });
+  if (asset.marketo_token_body && asset.body_text)
+    out.push({ name: strip(asset.marketo_token_body), value: asset.body_text, type: 'Text' });
+
+  return out;
 }
