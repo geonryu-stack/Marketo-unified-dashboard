@@ -10,7 +10,6 @@ interface DayRowProps {
   isPast: boolean;
   onToggleOn: (date: string) => void;
   onToggleOff: (date: string) => void;
-  onFieldBlur: (date: string, field: keyof Pick<DaySend, 'marketo_email_id' | 'marketo_email_name' | 'send_time' | 'timezone'>, value: string | number) => void;
   onSave: (date: string, patch: Partial<DaySend>) => void;
 }
 
