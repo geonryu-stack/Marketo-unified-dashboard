@@ -183,14 +183,12 @@ export function getWeekStart(date: Date = new Date()): string {
 
 /** weekStart(YYYY-MM-DD, 월요일)로부터 7일(월~일) 날짜 배열 반환 */
 export function getWeekDates(weekStart: string): string[] {
-  const dates: string[] = [];
-  const start = new Date(weekStart + 'T00:00:00');
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    dates.push(d.toISOString().slice(0, 10));
-  }
-  return dates;
+  const [y, m, d] = weekStart.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return Array.from({ length: 7 }, (_, i) => {
+    const dt = new Date(y, m - 1, d + i);
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+  });
 }
 
 /** 'YYYY-MM-DD' 날짜를 한국어 요일명으로 변환 */

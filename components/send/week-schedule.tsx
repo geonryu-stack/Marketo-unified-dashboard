@@ -66,11 +66,18 @@ export function WeekSchedule({ group, initialWeekStart, initialSchedules, emails
         const filtered = prev.filter((s) => s.send_date !== date);
         return [...filtered, json.data].sort((a, b) => a.send_date.localeCompare(b.send_date));
       });
+    } else {
+      alert(json.error ?? '활성화 실패');
     }
   }
 
   async function handleToggleOff(date: string) {
-    await fetch(`/api/send-schedules?groupId=${group.id}&date=${date}`, { method: 'DELETE' });
+    const res = await fetch(`/api/send-schedules?groupId=${group.id}&date=${date}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!json.success) {
+      alert(json.error ?? '삭제 실패');
+      return;
+    }
     setSchedules((prev) => prev.filter((s) => s.send_date !== date));
   }
 
@@ -135,6 +142,7 @@ export function WeekSchedule({ group, initialWeekStart, initialSchedules, emails
   }
 
   const activeSchedules = schedules.filter((s) => weekDates.includes(s.send_date));
+  const testSentCount = activeSchedules.filter((s) => s.status === 'test_sent').length;
   const testDoneCount = activeSchedules.filter((s) => s.status === 'test_sent' || s.status === 'scheduled' || s.status === 'sent').length;
   const scheduledCount = activeSchedules.filter((s) => s.status === 'scheduled' || s.status === 'sent').length;
 
@@ -224,7 +232,7 @@ export function WeekSchedule({ group, initialWeekStart, initialSchedules, emails
           </button>
           <button
             onClick={handleBulkSchedule}
-            disabled={scheduling || testDoneCount === 0}
+            disabled={scheduling || testSentCount === 0}
             className="px-4 py-1.5 text-sm font-semibold rounded-lg bg-indigo-600 text-white
                        hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
