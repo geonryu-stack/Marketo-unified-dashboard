@@ -21,7 +21,7 @@ import { FIELD_DEFS } from '@/lib/field-defs';
 import {
   upsertLeads, addLeadsToList,
   getListLeadIds, removeLeadsFromList,
-  sendSampleEmail,
+  sendSampleEmail, setProgramMyTokens, buildEpTokenPayload,
 } from '@/lib/marketo';
 import { v4 as uuid } from 'uuid';
 import { Campaign, Segment, AssetLibraryItem, FilterCondition } from '@/lib/types';
@@ -70,6 +70,12 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
   }
   if (!seg.marketo_audience_list_id) {
     return Response.json({ success: false, error: '세그먼트에 Audience Static List ID가 설정되지 않았습니다.' }, { status: 400 });
+  }
+  if (!seg.marketo_email_program_id) {
+    return Response.json(
+      { success: false, error: '세그먼트에 Email Program ID가 설정되지 않았습니다. 세그먼트 설정에서 "Email Program ID"를 입력하세요.' },
+      { status: 400 }
+    );
   }
   if (!seg.marketo_program_id) {
     return Response.json({ success: false, error: '세그먼트에 Marketo Smart Campaign ID가 설정되지 않았습니다.' }, { status: 400 });
@@ -212,10 +218,24 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
       .run(String(audienceListId), `Audience List ${audienceListId}`, new Date().toISOString(), id);
     log(appDb, id, 'list_refresh', 'done', `리스트 갱신 완료: ${leadIds.length}명 추가`);
 
+    // ── Step 3.5: Email Program My Token 주입 ────────────────────────
+    // setProgramMyTokens 성공 시 sendSampleEmail에서 Marketo가 토큰을 치환해 발송.
+    // 실패해도 Phase 1을 멈추지 않음 — 테스트 메일이 raw 토큰으로 발송됨.
+    const epId = parseInt(seg.marketo_email_program_id, 10);
+    const epTokens = buildEpTokenPayload(asset, campaign);
+    if (epTokens.length > 0) {
+      log(appDb, id, 'set_ep_tokens', 'running', `My Token ${epTokens.length}개 EP(${epId})에 주입 중`);
+      try {
+        await setProgramMyTokens(epId, epTokens);
+        log(appDb, id, 'set_ep_tokens', 'done', `My Token ${epTokens.length}개 설정 완료`);
+      } catch (tokenErr) {
+        const tokenMsg = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        log(appDb, id, 'set_ep_tokens', 'error',
+          `My Token 설정 실패 (테스트 메일은 raw 토큰으로 발송됨): ${tokenMsg}`);
+      }
+    }
+
     // ── Step 4: 테스트 메일 발송 ─────────────────────────────────
-    // My Token 주입은 Phase 1이 아닌 Phase 2(approve) 시 SC 예약 요청에 inline으로 처리됩니다.
-    // Program My Token API(/rest/asset/v1/program/{id}/tokens.json)는 이 계정에서
-    // 610 오류로 비활성화되어 있어 사용하지 않습니다.
     setStatus(appDb, id, 'preparing');
     // asset.marketo_email_id를 직접 사용 (Email Program API /emailProgram/{id}.json 미지원 계정 대응)
     log(appDb, id, 'send_test_email', 'running', `테스트 메일 발송 → ${TEST_EMAILS.join(', ')}`);
