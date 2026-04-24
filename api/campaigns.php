@@ -9,21 +9,52 @@ $params = $GLOBALS['route_params'] ?? [];
 $id     = $params['id'] ?? null;
 $action = $params['action'] ?? null;
 
-// ── 승인/거절 링크 (이메일에서 GET으로 클릭) ─────────────────
-if ($id && $action === 'approve-via-link' && $method === 'GET') {
-    $token      = $_GET['token'] ?? '';
-    $expires_at = (int)($_GET['expires'] ?? 0);
+// ── 승인/거절 링크 공통 헬퍼 ─────────────────────────────────
+function render_link_page(string $title, string $content): never {
+    $cdn = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css';
+    echo '<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">'
+       . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+       . '<title>' . htmlspecialchars($title) . '</title>'
+       . '<link rel="stylesheet" href="' . $cdn . '"></head>'
+       . '<body class="bg-light"><div class="container mt-5" style="max-width:480px">'
+       . $content
+       . '</div></body></html>';
+    exit;
+}
+
+// ── 승인 링크: GET → 확인 페이지, POST → Phase 2 실행 ─────────
+if ($id && $action === 'approve-via-link') {
+    $token      = $_GET['token']   ?? $_POST['token']   ?? '';
+    $expires_at = (int)($_GET['expires'] ?? $_POST['expires'] ?? 0);
     if (!verify_approval_token($token, 'approve', $id, $expires_at)) {
-        echo '<p>링크가 만료되었거나 유효하지 않습니다.</p>'; exit;
+        render_link_page('링크 오류', '<div class="alert alert-danger">링크가 만료되었거나 유효하지 않습니다.</div>');
     }
     $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
     if (!$c || $c['status'] !== 'awaiting_approval') {
-        echo '<p>승인할 수 없는 상태입니다: ' . htmlspecialchars($c['status'] ?? '?') . '</p>'; exit;
+        render_link_page('승인 불가', '<div class="alert alert-warning">승인할 수 없는 상태입니다: '
+            . htmlspecialchars($c['status'] ?? '?') . '</div>');
     }
-    // Phase 2 즉시 실행 (이메일 링크 클릭 → 바로 예약)
+    if ($method === 'GET') {
+        $post_url = APP_URL . '/campaigns/' . $id . '/approve-via-link';
+        render_link_page('캠페인 승인',
+            '<div class="card shadow-sm"><div class="card-body p-4">'
+          . '<h5 class="mb-3">캠페인 승인 확인</h5>'
+          . '<dl class="row mb-3">'
+          . '<dt class="col-5">캠페인</dt><dd class="col-7">' . htmlspecialchars($c['name']) . '</dd>'
+          . '<dt class="col-5">예약 시각</dt><dd class="col-7">' . htmlspecialchars(substr($c['scheduled_at'], 0, 16)) . '</dd>'
+          . '<dt class="col-5">대상자</dt><dd class="col-7">' . number_format((int)$c['lead_count']) . '명</dd>'
+          . '</dl>'
+          . '<p class="text-muted small mb-3">승인하면 즉시 Marketo Email Program이 예약됩니다.</p>'
+          . '<form method="POST" action="' . htmlspecialchars($post_url) . '">'
+          . '<input type="hidden" name="token" value="' . htmlspecialchars($token) . '">'
+          . '<input type="hidden" name="expires" value="' . $expires_at . '">'
+          . '<button type="submit" class="btn btn-success w-100 py-2">✅ 승인하기</button>'
+          . '</form></div></div>'
+        );
+    }
+    // POST: Phase 2 실행
     try {
-        require_once __DIR__ . '/../src/MarketoAPI.php';
-        $seg = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id'] ?? '']);
+        $seg   = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id'] ?? '']);
         $ep_id = (int)($seg['marketo_email_program_id'] ?? 0);
         if (!$ep_id) throw new RuntimeException('세그먼트에 Email Program ID가 설정되지 않았습니다.');
         $send_dt = $c['send_time']
@@ -33,27 +64,48 @@ if ($id && $action === 'approve-via-link' && $method === 'GET') {
         MarketoAPI::scheduleEmailProgram($ep_id, $send_dt);
         DB::exec('UPDATE campaigns SET status=?, marketo_email_program_id=?, updated_at=? WHERE id=?',
             ['scheduled', (string)$ep_id, now_str(), $id]);
-        echo '<p>✅ 캠페인이 승인되고 예약되었습니다. 예약 시각: ' . htmlspecialchars($send_dt) . '</p>';
+        render_link_page('승인 완료',
+            '<div class="alert alert-success"><strong>✅ 캠페인이 승인되고 예약되었습니다.</strong><br>'
+          . '예약 시각: ' . htmlspecialchars($send_dt) . '</div>'
+        );
     } catch (Throwable $e) {
         DB::exec('UPDATE campaigns SET status=?, error_message=?, updated_at=? WHERE id=?',
             ['failed', $e->getMessage(), now_str(), $id]);
-        echo '<p>❌ Phase 2 실행 실패: ' . htmlspecialchars($e->getMessage()) . '</p>';
+        render_link_page('승인 실패',
+            '<div class="alert alert-danger"><strong>❌ Phase 2 실행 실패</strong><br>'
+          . htmlspecialchars($e->getMessage()) . '</div>'
+        );
     }
-    exit;
 }
 
-if ($id && $action === 'reject-via-link' && $method === 'GET') {
-    $token      = $_GET['token'] ?? '';
-    $expires_at = (int)($_GET['expires'] ?? 0);
+// ── 거절 링크: GET → 확인 페이지, POST → 거절 처리 ─────────────
+if ($id && $action === 'reject-via-link') {
+    $token      = $_GET['token']   ?? $_POST['token']   ?? '';
+    $expires_at = (int)($_GET['expires'] ?? $_POST['expires'] ?? 0);
     if (!verify_approval_token($token, 'reject', $id, $expires_at)) {
-        echo '<p>링크가 만료되었거나 유효하지 않습니다.</p>'; exit;
+        render_link_page('링크 오류', '<div class="alert alert-danger">링크가 만료되었거나 유효하지 않습니다.</div>');
     }
-    $c = DB::one('SELECT status FROM campaigns WHERE id=?', [$id]);
+    $c = DB::one('SELECT status, name FROM campaigns WHERE id=?', [$id]);
     if (!$c || !in_array($c['status'], ['awaiting_approval', 'confirmed'])) {
-        echo '<p>거절할 수 없는 상태입니다.</p>'; exit;
+        render_link_page('거절 불가', '<div class="alert alert-warning">거절할 수 없는 상태입니다.</div>');
     }
+    if ($method === 'GET') {
+        $post_url = APP_URL . '/campaigns/' . $id . '/reject-via-link';
+        render_link_page('캠페인 거절',
+            '<div class="card shadow-sm"><div class="card-body p-4">'
+          . '<h5 class="mb-3">캠페인 거절 확인</h5>'
+          . '<p><strong>' . htmlspecialchars($c['name']) . '</strong> 캠페인을 거절하시겠습니까?</p>'
+          . '<p class="text-muted small mb-3">거절하면 캠페인 상태가 <strong>실패</strong>로 변경됩니다.</p>'
+          . '<form method="POST" action="' . htmlspecialchars($post_url) . '">'
+          . '<input type="hidden" name="token" value="' . htmlspecialchars($token) . '">'
+          . '<input type="hidden" name="expires" value="' . $expires_at . '">'
+          . '<button type="submit" class="btn btn-danger w-100 py-2">❌ 거절하기</button>'
+          . '</form></div></div>'
+        );
+    }
+    // POST: 거절 처리
     DB::exec('UPDATE campaigns SET status=?, updated_at=? WHERE id=?', ['failed', now_str(), $id]);
-    echo '<p>❌ 캠페인이 거절되었습니다.</p>'; exit;
+    render_link_page('거절 완료', '<div class="alert alert-warning">❌ 캠페인이 거절되었습니다.</div>');
 }
 
 try {
