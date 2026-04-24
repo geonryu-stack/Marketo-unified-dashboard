@@ -1,0 +1,10 @@
+# .htaccess
+RewriteEngine On
+RewriteBase /marketo-automation/
+
+# 실제 파일·디렉터리는 그대로 서빙
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# 나머지는 index.php로
+RewriteRule ^ index.php [QSA,L]
