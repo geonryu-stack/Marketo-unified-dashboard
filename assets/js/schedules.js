@@ -38,9 +38,9 @@ function renderTable({ groups, schedules, dates }) {
               + `<div class="small text-muted">${s.send_time} (${s.timezone})</div>`
               + `<span class="badge bg-${s.status === 'scheduled' ? 'success' : s.status === 'test_sent' ? 'info' : 'secondary'}">${s.status}</span>`
               + `<div class="mt-1 d-flex gap-1 justify-content-center">`
-              + `<button class="btn btn-xs btn-outline-info" onclick="testSchedule('${s.id}')">테스트</button>`
-              + `<button class="btn btn-xs btn-outline-success" onclick="doSchedule('${s.id}')">예약</button>`
-              + `<button class="btn btn-xs btn-outline-danger" onclick="deleteSchedule('${s.id}')">✕</button>`
+              + `<button class="btn btn-sm btn-outline-info" onclick="testSchedule('${s.id}')">테스트</button>`
+              + `<button class="btn btn-sm btn-outline-success" onclick="doSchedule('${s.id}')">예약</button>`
+              + `<button class="btn btn-sm btn-outline-danger" onclick="deleteSchedule('${s.id}')">✕</button>`
               + `</div>`;
       } else {
         html += `<button class="btn btn-sm btn-outline-secondary" onclick="addSchedule('${g.id}','${d}')">+</button>`;
