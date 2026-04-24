@@ -251,18 +251,13 @@ function run_campaign_phase1(string $id): void
             [(string)$list_id, "Audience List $list_id", now_str(), $id]);
         add_log($id, 'list_refresh', 'done', '리스트 갱신 완료: ' . count($lead_ids) . '명 추가');
 
-        // Step 3.5: My Token 주입
+        // Step 3.5: My Token 주입 ({{my.emoji}} 항상 덮어씀 — 이전 발송 값 잔류 방지)
         $ep_id = (int)($seg['marketo_email_program_id'] ?? 0);
         if ($ep_id) {
             add_log($id, 'set_ep_tokens', 'running', "My Token EP($ep_id)에 주입 중");
             try {
-                $tokens = MarketoAPI::buildEpTokenPayload($c);
-                if (!empty($tokens)) {
-                    MarketoAPI::setProgramMyTokens($ep_id, $tokens);
-                    add_log($id, 'set_ep_tokens', 'done', count($tokens) . '개 토큰 설정 완료');
-                } else {
-                    add_log($id, 'set_ep_tokens', 'done', '주입할 토큰 없음 (건너뜀)');
-                }
+                MarketoAPI::setProgramMyTokens($ep_id, MarketoAPI::buildEpTokenPayload($c));
+                add_log($id, 'set_ep_tokens', 'done', '{{my.emoji}} 토큰 설정 완료');
             } catch (Throwable $te) {
                 add_log($id, 'set_ep_tokens', 'error', 'My Token 설정 실패: ' . $te->getMessage());
             }

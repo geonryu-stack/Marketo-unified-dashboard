@@ -136,11 +136,8 @@ class MarketoAPI
 
     public static function buildEpTokenPayload(array $campaign): array
     {
-        if (empty($campaign['emoji'])) {
-            return [];
-        }
         return [
-            ['name' => '{{my.emoji}}', 'value' => $campaign['emoji'], 'type' => 'richText'],
+            ['name' => '{{my.emoji}}', 'value' => $campaign['emoji'] ?? '', 'type' => 'richText'],
         ];
     }
 
