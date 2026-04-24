@@ -30,6 +30,10 @@ if ($id && $action === 'reject-via-link' && $method === 'GET') {
     if (!verify_approval_token($token, 'reject', $id, $expires_at)) {
         echo '<p>링크가 만료되었거나 유효하지 않습니다.</p>'; exit;
     }
+    $c = DB::one('SELECT status FROM campaigns WHERE id=?', [$id]);
+    if (!$c || !in_array($c['status'], ['awaiting_approval', 'confirmed'])) {
+        echo '<p>거절할 수 없는 상태입니다.</p>'; exit;
+    }
     DB::exec('UPDATE campaigns SET status=?, updated_at=? WHERE id=?', ['failed', now_str(), $id]);
     echo '<p>❌ 캠페인이 거절되었습니다.</p>'; exit;
 }
@@ -284,8 +288,8 @@ function run_campaign_phase1(string $id): void
 function run_campaign_phase2(string $id): void
 {
     $c   = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
-    $seg = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id'] ?? '']);
     if (!$c) json_err('캠페인을 찾을 수 없습니다.', 404);
+    $seg = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id'] ?? '']);
     if ($c['status'] !== 'awaiting_approval') json_err('승인 대기 상태가 아닙니다.', 400);
 
     try {
