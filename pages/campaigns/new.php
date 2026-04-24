@@ -31,6 +31,12 @@ include __DIR__ . '/../layout_header.php';
     <label class="form-label">보상 URL</label>
     <input type="url" class="form-control" name="reward_url">
   </div>
+  <div class="mb-3">
+    <label class="form-label">이모지 (My Token {{my.emoji}})</label>
+    <input type="text" class="form-control" name="emoji" maxlength="20"
+           placeholder="예: 🎁  (공백이면 토큰 주입 건너뜀)">
+    <div class="form-text">이메일 제목 앞에 삽입되는 이모지. 비워두면 토큰 주입을 건너뜁니다.</div>
+  </div>
   <div class="row g-3 mb-3">
     <div class="col-md-6">
       <label class="form-label">예약 시각 *</label>
@@ -52,7 +58,7 @@ document.getElementById('campaign-form').addEventListener('submit', async (e) =>
   const body = {
     name: f.name.value, segment_id: f.segment_id.value,
     asset_name: f.asset_name.value, marketo_cloned_email_id: f.marketo_cloned_email_id.value,
-    reward_url: f.reward_url.value,
+    reward_url: f.reward_url.value, emoji: f.emoji.value.trim(),
     scheduled_at: f.scheduled_at.value.replace('T', ' '),
     send_time: f.send_time.value,
   };

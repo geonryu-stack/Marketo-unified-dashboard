@@ -136,14 +136,12 @@ class MarketoAPI
 
     public static function buildEpTokenPayload(array $campaign): array
     {
-        return array_values(array_filter([
-            !empty($campaign['token_image'])    ? ['name' => $campaign['token_image'],    'value' => $campaign['image_url'] ?? '',    'type' => 'HTML'] : null,
-            !empty($campaign['token_subject'])  ? ['name' => $campaign['token_subject'],  'value' => ($campaign['emoji'] ?? '') . ' ' . ($campaign['subject'] ?? ''), 'type' => 'text'] : null,
-            !empty($campaign['token_preheader'])? ['name' => $campaign['token_preheader'],'value' => $campaign['preheader'] ?? '',    'type' => 'text'] : null,
-            !empty($campaign['token_body'])     ? ['name' => $campaign['token_body'],     'value' => $campaign['body_text'] ?? '',    'type' => 'text'] : null,
-            !empty($campaign['token_emoji'])    ? ['name' => $campaign['token_emoji'],    'value' => $campaign['emoji'] ?? '',        'type' => 'text'] : null,
-            !empty($campaign['token_reward_url'])? ['name' => $campaign['token_reward_url'],'value' => $campaign['reward_url'] ?? '', 'type' => 'text'] : null,
-        ]));
+        if (empty($campaign['emoji'])) {
+            return [];
+        }
+        return [
+            ['name' => '{{my.emoji}}', 'value' => $campaign['emoji'], 'type' => 'richText'],
+        ];
     }
 
     // ── 테스트 메일 발송 ──────────────────────────────────────

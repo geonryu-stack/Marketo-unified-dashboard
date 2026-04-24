@@ -84,9 +84,9 @@ try {
         $seg = DB::one('SELECT name FROM segments WHERE id=?', [$body['segment_id'] ?? '']);
         DB::exec(
             'INSERT INTO campaigns
-             (id, name, segment_id, segment_name, asset_name, reward_url,
+             (id, name, segment_id, segment_name, asset_name, reward_url, emoji,
               scheduled_at, send_time, status, lead_count, created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,\'draft\',0,?,?)',
+             VALUES (?,?,?,?,?,?,?,?,?,\'draft\',0,?,?)',
             [
                 $new_id,
                 $body['name'] ?? '',
@@ -94,6 +94,7 @@ try {
                 $seg['name'] ?? '',
                 $body['asset_name'] ?? '',
                 $body['reward_url'] ?? '',
+                trim($body['emoji'] ?? ''),
                 $body['scheduled_at'] ?? $now,
                 $body['send_time'] ?? '10:00',
                 $now, $now,

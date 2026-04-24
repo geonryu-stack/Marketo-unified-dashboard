@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS `campaigns` (
   `marketo_cloned_email_id` VARCHAR(100) DEFAULT NULL,
   `marketo_email_program_id` VARCHAR(100) DEFAULT NULL,
   `marketo_campaign_id` VARCHAR(100) DEFAULT NULL,
+  `emoji` VARCHAR(20) DEFAULT NULL,
   `status` VARCHAR(50) NOT NULL DEFAULT 'draft',
   `lead_count` INT NOT NULL DEFAULT 0,
   `error_message` TEXT DEFAULT NULL,

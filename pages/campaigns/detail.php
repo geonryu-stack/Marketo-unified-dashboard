@@ -18,6 +18,7 @@ include __DIR__ . '/../layout_header.php';
         <dt class="col-sm-5">세그먼트</dt><dd class="col-sm-7"><?= htmlspecialchars($c['segment_name']) ?></dd>
         <dt class="col-sm-5">예약 시각</dt><dd class="col-sm-7"><?= substr($c['scheduled_at'],0,16) ?></dd>
         <dt class="col-sm-5">발송 시각</dt><dd class="col-sm-7"><?= $c['send_time'] ?: '-' ?></dd>
+        <dt class="col-sm-5">이모지</dt><dd class="col-sm-7"><?= htmlspecialchars($c['emoji'] ?? '-') ?></dd>
         <dt class="col-sm-5">대상자</dt><dd class="col-sm-7"><?= $c['lead_count'] > 0 ? number_format($c['lead_count']).'명' : '-' ?></dd>
       </dl>
     </div></div>
