@@ -20,8 +20,26 @@ if ($id && $action === 'approve-via-link' && $method === 'GET') {
     if (!$c || $c['status'] !== 'awaiting_approval') {
         echo '<p>승인할 수 없는 상태입니다: ' . htmlspecialchars($c['status'] ?? '?') . '</p>'; exit;
     }
-    DB::exec('UPDATE campaigns SET status=?, updated_at=? WHERE id=?', ['confirmed', now_str(), $id]);
-    echo '<p>✅ 캠페인이 승인되었습니다. Phase 2 예약이 진행됩니다.</p>'; exit;
+    // Phase 2 즉시 실행 (이메일 링크 클릭 → 바로 예약)
+    try {
+        require_once __DIR__ . '/../src/MarketoAPI.php';
+        $seg = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id'] ?? '']);
+        $ep_id = (int)($seg['marketo_email_program_id'] ?? 0);
+        if (!$ep_id) throw new RuntimeException('세그먼트에 Email Program ID가 설정되지 않았습니다.');
+        $send_dt = $c['send_time']
+            ? date('Y-m-d', strtotime($c['scheduled_at'])) . 'T' . $c['send_time'] . ':00+0000'
+            : date('Y-m-d\TH:i:s', strtotime($c['scheduled_at'])) . '+0000';
+        DB::exec('UPDATE campaigns SET status=?, updated_at=? WHERE id=?', ['scheduling', now_str(), $id]);
+        MarketoAPI::scheduleEmailProgram($ep_id, $send_dt);
+        DB::exec('UPDATE campaigns SET status=?, marketo_email_program_id=?, updated_at=? WHERE id=?',
+            ['scheduled', (string)$ep_id, now_str(), $id]);
+        echo '<p>✅ 캠페인이 승인되고 예약되었습니다. 예약 시각: ' . htmlspecialchars($send_dt) . '</p>';
+    } catch (Throwable $e) {
+        DB::exec('UPDATE campaigns SET status=?, error_message=?, updated_at=? WHERE id=?',
+            ['failed', $e->getMessage(), now_str(), $id]);
+        echo '<p>❌ Phase 2 실행 실패: ' . htmlspecialchars($e->getMessage()) . '</p>';
+    }
+    exit;
 }
 
 if ($id && $action === 'reject-via-link' && $method === 'GET') {
@@ -301,7 +319,7 @@ function run_campaign_phase2(string $id): void
 
         $send_dt = $c['send_time']
             ? date('Y-m-d', strtotime($c['scheduled_at'])) . 'T' . $c['send_time'] . ':00+0000'
-            : $c['scheduled_at'];
+            : date('Y-m-d\TH:i:s', strtotime($c['scheduled_at'])) . '+0000';
 
         MarketoAPI::scheduleEmailProgram($ep_id, $send_dt);
         DB::exec('UPDATE campaigns SET marketo_email_program_id=?, updated_at=? WHERE id=?',
