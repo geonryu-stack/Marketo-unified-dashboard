@@ -47,3 +47,7 @@ next-env.d.ts
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
+# PHP 환경 설정 및 토큰 캐시 (민감 정보, 런타임 생성)
+config/config.php
+config/marketo_token.cache
