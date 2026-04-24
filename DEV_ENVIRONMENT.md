@@ -11,26 +11,23 @@
 | 웹 언어 | PHP |
 | 로컬 통합 도구 | XAMPP |
 
-## ⚠️ 이 프로젝트의 현재 상태 (결정 보류 중)
+## 현재 프로젝트 상태
 
-**현재 스택: Next.js 16 (TypeScript) + SQLite(앱 DB) + MySQL(사내 사용자 DB)**
+**현재 스택: PHP 8.x + MySQL (XAMPP) + Apache**
 
-회사 표준(PHP + MySQL)과 불일치 상태이며, 아키텍처 방향이 아직 결정되지 않았습니다.
+PHP 전면 재작성 완료 (2026-04-24). 회사 표준 스택과 완전히 일치합니다.
 
-**결정 대기 중인 사항:**
-- A) 현재 Next.js 유지 + SQLite → MySQL 교체 (Vercel 배포 문제 해결)
-- B) PHP + MySQL로 전체 재작성 (회사 표준 완전 준수)
-
-**결정이 내려지기 전까지:**
-- 기존 Next.js/TypeScript 코드를 그대로 유지한다.
-- PHP 전환을 가정한 코드 작성 금지.
-- DB는 현재 SQLite 그대로 유지한다 (교체 작업은 결정 후 진행).
-
-## 회사 표준 규칙 (결정 후 적용)
-
-아키텍처가 PHP로 확정되면 아래 규칙을 적용한다.
+## 회사 표준 규칙 (적용 중)
 
 1. **DB는 MySQL만 사용** — SQLite, PostgreSQL 등 금지. XAMPP 내장 MySQL 사용.
 2. **서버 언어는 PHP만 사용** — Node.js 등 다른 런타임 기반 백엔드 금지.
 3. **웹 서버는 Apache** — XAMPP Apache로 로컬 실행. `.htaccess`로 URL 라우팅.
-4. **환경 변수는 설정 파일로 분리** — 연결 정보 하드코딩 금지, `.gitignore` 추가.
+4. **환경 변수는 설정 파일로 분리** — `config/config.php` (gitignore 처리). 연결 정보 하드코딩 금지.
+5. **XAMPP 설정** — DocumentRoot에서 `marketo-automation/` 폴더 접근. `http://localhost/marketo-automation/`
+
+## 로컬 실행 방법
+
+1. XAMPP Control Panel → Apache, MySQL 시작
+2. `C:\xampp\htdocs\marketo-automation\config\config.example.php` → `config.php` 복사 후 값 입력
+3. phpMyAdmin → `sql/schema.sql` 실행 (DB 및 테이블 생성)
+4. 브라우저에서 `http://localhost/marketo-automation/` 접속

@@ -1,53 +1,16 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# PHP 설정 (민감 정보)
+config/config.php
+config/marketo_token.cache
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Next.js 환경 변수 (민감 정보, 레거시)
+.env.local
+.env*.local
 
-# testing
-/coverage
+# 런타임 데이터
+data/
 
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
+# macOS
 .DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
 
 # local Claude Code settings (personal, not project)
 .claude/settings.local.json
-
-# SQLite DB (런타임 데이터, 민감 정보 포함 가능)
-data/*.db
-data/*.db-shm
-data/*.db-wal
-
-# PHP 환경 설정 및 토큰 캐시 (민감 정보, 런타임 생성)
-config/config.php
-config/marketo_token.cache
