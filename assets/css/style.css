@@ -8,3 +8,8 @@ body { background-color: #f8f9fa; }
 .log-row-done    { color: #198754; }
 .log-row-error   { color: #dc3545; }
 .log-row-running { color: #0d6efd; }
+
+/* Sprint 0 ASSET — 길이 가이드 카운터 (mb_strlen/weighted length 기준) */
+.char-counter      { font-variant-numeric: tabular-nums; }
+.char-counter.char-warn { color: #b8860b; }
+.char-counter.char-over { color: #dc3545; font-weight: 600; }

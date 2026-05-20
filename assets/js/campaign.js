@@ -260,8 +260,101 @@ const campaign = {
   },
 };
 
-// 페이지 로드 시 체크리스트 바인딩
-document.addEventListener('DOMContentLoaded', () => campaign._bindApprovalChecklist());
+// 페이지 로드 시 체크리스트 바인딩 + ASSET 길이가이드/URL가드
+document.addEventListener('DOMContentLoaded', () => {
+  campaign._bindApprovalChecklist();
+  initLengthGuides();
+  attachRewardUrlGuard();
+});
+
+// ──────────────────────────────────────────────────────────
+// Sprint 0 ASSET — 길이 가이드 & URL 검증/정규화
+// ──────────────────────────────────────────────────────────
+
+/**
+ * 가중치 기반 문자 길이.
+ * ASCII printable(공백/영숫자/기호)은 1, 그 외(한글, 이모지 등)는 2로 카운트.
+ * 한글 1자가 영문 약 2자에 해당하는 시각적 폭을 반영 (Marketo 제목 미리보기 기준).
+ */
+function weightedLength(s) {
+  if (!s) return 0;
+  let n = 0;
+  for (const ch of [...s]) {            // surrogate pair (이모지) 1자 처리
+    n += /^[\x20-\x7E]$/.test(ch) ? 1 : 2;
+  }
+  return n;
+}
+
+const LENGTH_GUIDES = {
+  email_title:     { warn: 30, over: 50,  label: '한글 기준' },
+  email_preheader: { warn: 90, over: 140, label: '문자' },
+};
+
+function ensureCounterFor(input) {
+  let counter = input.parentElement?.querySelector(`:scope > .char-counter[data-for="${input.name}"]`);
+  if (counter) return counter;
+  counter = document.createElement('div');
+  counter.className = 'form-text char-counter';
+  counter.dataset.for = input.name;
+  const existing = input.parentElement?.querySelector(':scope > .form-text');
+  if (existing && existing !== counter) existing.parentElement.insertBefore(counter, existing);
+  else input.insertAdjacentElement('afterend', counter);
+  return counter;
+}
+
+function updateCounter(input, guide) {
+  const counter = ensureCounterFor(input);
+  const len = weightedLength(input.value);
+  counter.textContent = `${len}/${guide.warn} (${guide.label})`;
+  counter.classList.remove('char-warn', 'char-over');
+  if (len > guide.over) counter.classList.add('char-over');
+  else if (len > guide.warn) counter.classList.add('char-warn');
+}
+
+function initLengthGuides() {
+  for (const [name, guide] of Object.entries(LENGTH_GUIDES)) {
+    const input = document.querySelector(`input[name="${name}"]`);
+    if (!input) continue;
+    updateCounter(input, guide);
+    input.addEventListener('input', () => updateCounter(input, guide));
+  }
+}
+
+/** 보상 URL 정규화: trim + 줄바꿈/탭 제거 (후행 슬래시는 유지). */
+function normalizeRewardUrl(s) {
+  if (!s) return '';
+  return String(s).replace(/[\r\n\t]/g, '').trim();
+}
+
+/** 빈 문자열은 통과. https?:// 시작 + URL 생성자 parse 성공이어야 유효. */
+function isValidRewardUrl(s) {
+  if (!s) return true;
+  if (!/^https?:\/\//i.test(s)) return false;
+  try { new URL(s); return true; } catch { return false; }
+}
+
+/**
+ * new/edit 폼의 submit 직전 reward_url 정규화 + 검증.
+ * - capture 단계에 등록 → 기존 submit 핸들러보다 먼저 실행.
+ * - 실패 시 stopImmediatePropagation으로 후속 핸들러 차단.
+ */
+function attachRewardUrlGuard() {
+  const forms = document.querySelectorAll('#campaign-form, #edit-form');
+  forms.forEach(form => {
+    form.addEventListener('submit', (e) => {
+      const input = form.querySelector('input[name="reward_url"]');
+      if (!input) return;
+      const normalized = normalizeRewardUrl(input.value);
+      if (normalized !== input.value) input.value = normalized;
+      if (!isValidRewardUrl(normalized)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        alert('보상 URL이 유효하지 않습니다. https:// 또는 http://로 시작하는 올바른 URL을 입력하세요.');
+        input.focus();
+      }
+    }, true);
+  });
+}
 
 // Bulk Import 진행 카드 갱신 (status='bulk_polling'인 동안만)
 let _bulkTimer = null;
