@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/Marketo/MarketoBulkImport.php';
+require_once __DIR__ . '/Notifier.php';
 
 /**
  * Marketo Email Program 변경 도중 실패 시 던지는 예외.
@@ -231,10 +232,7 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
         // Marketo 권한 차단(610)은 graceful skip — 운영자 알림
         if (str_contains($e->getMessage(), 'code 610') || str_contains($e->getMessage(), '404')) {
             $log('verify_tokens', 'running', '권한 없음(610) — C-TOKEN-VERIFY skip. 운영자 검토 권장.');
-            if (function_exists('Notifier::slack')) { /* not callable like this */ }
-            if (class_exists('Notifier')) {
-                Notifier::slack("[C-TOKEN-VERIFY skip] Program {$send_program_id} tokens API 권한 없음 ({$e->getMessage()})", 'warn');
-            }
+            Notifier::slack("[C-TOKEN-VERIFY skip] Program {$send_program_id} tokens API 권한 없음 ({$e->getMessage()})", 'warn');
         } else {
             throw $e; // 값 불일치는 그대로 전파
         }
@@ -252,22 +250,37 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
     // ── EP 변경 위험 구간 ─────────────────────────────────────
     // 이 구간 진입 후 어떤 단계든 실패하면 Marketo 측 상태가 불확정.
     // → status='needs_manual_review'로 격리하여 sibling 캠페인의 EP 덮어쓰기 차단.
+    //
+    // Sprint 5: 운영자 Marketo 계정의 emailProgram POST 권한 차단 확인됨(610).
+    // MARKETO_SEND_MODE='smart_campaign' 분기 — Smart Campaign API(/rest/v1/campaigns)로 예약.
+    // 'email_program' (legacy) 모드는 다른 권한 매트릭스 환경에서 사용.
+    $send_mode = defined('MARKETO_SEND_MODE') ? MARKETO_SEND_MODE : 'smart_campaign';
     try {
-        $unapprove_result = MarketoAPI::unapproveEmailProgramSafe($ep_id);
-        $log('schedule_ep', 'running', "Email Program({$ep_id}) unapprove: {$unapprove_result}");
-
         $send_dt = date('Y-m-d\TH:i:s', strtotime($c['send_time'])) . 'Z';
-        $log('schedule_ep', 'running', "Email Program({$ep_id}) RTZ 예약: {$send_dt}");
-        MarketoAPI::scheduleEmailProgram($ep_id, $send_dt);
+
+        if ($send_mode === 'smart_campaign') {
+            // Smart Campaign: unapprove 개념 없음, schedule 호출 1회로 끝(재호출시 덮어쓰기).
+            // 토큰을 schedule body의 input.tokens 로 함께 전송 → 폴더 상속이 silent fail
+            // 하는 운영자 권한 환경에서도 my.Preheader 등 동적 토큰이 확실히 반영됨.
+            $log('schedule_ep', 'running', "Smart Campaign({$ep_id}) RTZ 예약 + 토큰 4종 inline 주입: {$send_dt}");
+            MarketoAPI::scheduleSmartCampaign($ep_id, $send_dt, $expected_tokens);
+        } else {
+            // Email Program: unapprove(safe) + schedule 2-step.
+            $unapprove_result = MarketoAPI::unapproveEmailProgramSafe($ep_id);
+            $log('schedule_ep', 'running', "Email Program({$ep_id}) unapprove: {$unapprove_result}");
+            $log('schedule_ep', 'running', "Email Program({$ep_id}) RTZ 예약: {$send_dt}");
+            MarketoAPI::scheduleEmailProgram($ep_id, $send_dt);
+        }
 
         // ── C-SCHEDULE-ECHO (CRITICS.md §2 ★★☆) ───────────────────
         // scheduleEmailProgram 호출 직후 GET으로 재확인.
         // Marketo가 200을 반환했지만 실제로는 예약이 반영되지 않은 silent failure를 탐지.
         //
-        // 위험구간(unapprove + scheduleEmailProgram 이미 실행) **안**에서 발생하므로
-        // 실패 시 CampaignNeedsReviewException으로 격리. (C-TOKEN-VERIFY는 위험구간
-        // 진입 **전**이라 일반 RuntimeException — 두 패턴을 혼동하지 말 것.)
-        verify_schedule_echo($id, $ep_id, $send_dt, $log);
+        // 위험구간 안에서 발생하므로 실패 시 CampaignNeedsReviewException으로 격리.
+        // smart_campaign 모드는 emailProgram GET 권한이 없는 환경 가정 — verify skip.
+        if ($send_mode === 'email_program') {
+            verify_schedule_echo($id, $ep_id, $send_dt, $log);
+        }
 
         DB::exec(
             "UPDATE campaigns SET status='scheduled', updated_at=? WHERE id=?",

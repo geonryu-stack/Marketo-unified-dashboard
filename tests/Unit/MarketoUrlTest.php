@@ -67,4 +67,14 @@ final class MarketoUrlTest extends TestCase
         $this->assertSame('marketo_audience_list_id',   MarketoUrl::suggestedColumn('staticList'));
         $this->assertSame('marketo_cloned_email_id',    MarketoUrl::suggestedColumn('email'));
     }
+
+    // ── Sprint 5: scheduleSmartCampaign tokens 인자 정적 grep ────
+
+    public function testScheduleSmartCampaignAcceptsTokensArg(): void
+    {
+        $src = file_get_contents(__DIR__ . '/../../src/Marketo/MarketoAPI.php');
+        // 토큰 인자가 추가됐는지 + Marketo Smart Campaign 형식('{{my.NAME}}')으로 변환되는지
+        $this->assertStringContainsString('scheduleSmartCampaign(int $campaignId, string $datetimeIso, array $tokens', $src);
+        $this->assertStringContainsString("'{{my.' . \$t['name'] . '}}'", $src);
+    }
 }

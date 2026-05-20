@@ -329,6 +329,44 @@ class MarketoAPI
         );
     }
 
+    /**
+     * Sprint 5 — Smart Campaign (Batch) 예약 발송.
+     *
+     * 운영자 Marketo 계정에 emailProgram POST 권한이 차단된 경우(610 확인) 대안 경로.
+     * memory의 "Batch Smart Campaign 방식" — `/rest/v1/campaigns/{id}/schedule.json` 호출.
+     *
+     * Smart Campaign은 unapprove 개념이 없다. schedule 재호출 시 마지막 호출 시각으로
+     * 덮어쓰기되는 것이 표준 동작 (Marketo 문서 기준).
+     *
+     * @param int    $campaignId  Smart Campaign ID (운영자가 segments.marketo_email_program_id 에 저장한 값)
+     * @param string $datetimeIso 'YYYY-MM-DDTHH:MM:SS+0000'
+     * @param array  $tokens      build_campaign_tokens() 결과. body의 input.tokens 로 전송 →
+     *                            이 발송 한정으로 my.Preheader 등 동적 토큰을 폴더 상속보다
+     *                            우선해서 주입. 폴더 토큰 주입(syncProgramMyTokens)이 운영자
+     *                            계정에서 silent fail 하는 환경에서도 토큰이 확실히 반영됨.
+     */
+    public static function scheduleSmartCampaign(int $campaignId, string $datetimeIso, array $tokens = []): void
+    {
+        $body = ['input' => ['runAt' => $datetimeIso]];
+        if (!empty($tokens)) {
+            // Marketo Smart Campaign schedule API의 tokens 형식:
+            //   [{"name": "{{my.Emoji}}", "value": "..."}, ...]
+            // build_campaign_tokens() 결과는 name='Emoji'/'Title'/'Preheader'/'RewardUrl' 평문이므로
+            // '{{my.NAME}}' 형식으로 감싸 전송.
+            $body['input']['tokens'] = array_map(function ($t) {
+                return [
+                    'name'  => '{{my.' . $t['name'] . '}}',
+                    'value' => (string)($t['value'] ?? ''),
+                ];
+            }, $tokens);
+        }
+        self::curl('POST',
+            MARKETO_REST_URL . "/v1/campaigns/$campaignId/schedule.json",
+            self::authHeaders(),
+            $body
+        );
+    }
+
     public static function unapproveEmailProgram(int $programId): void
     {
         self::curl('POST',
