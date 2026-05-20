@@ -220,6 +220,43 @@ try {
         json_ok(['rejected' => true]);
     }
 
+    // POST /api/campaigns/{id}/screenshot — 결재 카드 테스트 메일 스크린샷 첨부
+    // multipart/form-data, $_FILES['file']. awaiting_approval 상태에서만 허용.
+    // 저장: data/screenshots/{campaign_id}/{timestamp}_{safe_name} (INFRA screenshot_save 헬퍼 사용)
+    elseif ($method === 'POST' && $id && $action === 'screenshot') {
+        $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
+        if (!$c) json_err('캠페인을 찾을 수 없습니다.', 404);
+        if ($c['status'] !== 'awaiting_approval') {
+            json_err('테스트 메일 스크린샷은 결재 대기 상태에서만 첨부할 수 있습니다.', 400);
+        }
+        if (empty($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'] ?? '')) {
+            json_err('첨부 파일이 없습니다.', 400);
+        }
+        if (!empty($_FILES['file']['error'])) {
+            json_err('파일 업로드 오류 (code=' . (int)$_FILES['file']['error'] . ')', 400);
+        }
+
+        try {
+            $rel_path = screenshot_save(
+                $_FILES['file']['tmp_name'],
+                $c['id'],
+                (string)$_FILES['file']['name']
+            );
+        } catch (RuntimeException $e) {
+            json_err($e->getMessage(), 400);
+        }
+
+        DB::exec(
+            'UPDATE campaigns SET test_screenshot_path=?, updated_at=? WHERE id=?',
+            [$rel_path, now_str(), $id]
+        );
+        add_log($id, 'screenshot', 'done', '운영자가 테스트 메일 스크린샷 첨부: ' . $rel_path);
+        json_ok([
+            'path'          => $rel_path,
+            'thumbnail_url' => rtrim(APP_URL, '/') . '/' . ltrim($rel_path, '/'),
+        ]);
+    }
+
     // POST /api/campaigns/{id}/resend-test-email — 테스트 메일 재발송
     elseif ($method === 'POST' && $id && $action === 'resend-test-email') {
         $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);

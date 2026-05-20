@@ -93,6 +93,50 @@ const campaign = {
     }
   },
 
+  // ── 테스트 메일 스크린샷 첨부 (Sprint 1 ASSET) ───────────────
+  async uploadScreenshot() {
+    const input = document.getElementById('screenshot-file');
+    if (!input || !input.files || !input.files[0]) {
+      alert('첨부할 이미지 파일을 선택하세요.');
+      return;
+    }
+    const file = input.files[0];
+    // 클라이언트 측 1차 가드: 5MB / 화이트리스트 MIME (서버에서 재검증)
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED.includes(file.type)) {
+      alert('jpg, png, webp 형식만 업로드 가능합니다.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('파일 크기는 5MB 이하여야 합니다.');
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    const btn = event && event.target ? event.target : null;
+    if (btn) { btn.disabled = true; btn.textContent = '업로드 중...'; }
+
+    try {
+      const res  = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}/screenshot`, {
+        method: 'POST',
+        body:   fd,
+      });
+      const data = await res.json();
+      if (data.success) {
+        // 즉시 페이지 리로드: 첨부 슬롯이 썸네일 모드로 전환됨
+        location.reload();
+      } else {
+        alert('스크린샷 첨부 실패: ' + (data.error || '알 수 없는 오류'));
+        if (btn) { btn.disabled = false; btn.textContent = '첨부'; }
+      }
+    } catch (e) {
+      alert('네트워크 오류: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = '첨부'; }
+    }
+  },
+
   // ── 기존 액션 ───────────────────────────────────────────────
   async _action(action, method = 'POST') {
     const res  = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}/${action}`, { method });

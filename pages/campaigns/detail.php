@@ -119,6 +119,42 @@ $is_urgent      = $hours_to_send !== null && $hours_to_send >= 0 && $hours_to_se
             좌측의 캠페인 기본 정보와 토큰 미리보기를 확인한 후, 아래 체크리스트를 모두 점검해야 승인 버튼이 활성화됩니다.
           </p>
 
+          <?php
+            $ss_path = $c['test_screenshot_path'] ?? null;
+            $ss_url  = $ss_path ? (rtrim(APP_URL, '/') . '/' . ltrim((string)$ss_path, '/')) : null;
+          ?>
+          <div class="mb-3 border rounded p-2 bg-light" id="screenshot-slot">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong class="small">📸 테스트 메일 스크린샷 첨부 (선택)</strong>
+              <small class="text-muted">jpg / png / webp · 5MB 이하 · 결재 흔적 보존용</small>
+            </div>
+            <?php if ($ss_url): ?>
+              <div class="d-flex align-items-start gap-3">
+                <a href="<?= htmlspecialchars($ss_url) ?>" target="_blank" rel="noopener">
+                  <img src="<?= htmlspecialchars($ss_url) ?>" alt="테스트 메일 스크린샷"
+                       style="max-width:200px;max-height:140px;border:1px solid #ddd;border-radius:4px;">
+                </a>
+                <div class="flex-grow-1">
+                  <div class="small text-muted text-break mb-2"><code><?= htmlspecialchars($ss_path) ?></code></div>
+                  <input type="file" class="form-control form-control-sm mb-2" id="screenshot-file"
+                         accept="image/jpeg,image/png,image/webp">
+                  <button type="button" class="btn btn-outline-secondary btn-sm"
+                          onclick="campaign.uploadScreenshot()">재첨부</button>
+                </div>
+              </div>
+            <?php else: ?>
+              <div class="d-flex align-items-end gap-2">
+                <input type="file" class="form-control form-control-sm" id="screenshot-file"
+                       accept="image/jpeg,image/png,image/webp">
+                <button type="button" class="btn btn-outline-primary btn-sm"
+                        onclick="campaign.uploadScreenshot()">첨부</button>
+              </div>
+              <small class="text-muted d-block mt-1">
+                테스트 메일을 받은 메일 클라이언트에서 캡처한 이미지를 올리면, 추후 감사·재발견 시 어떤 화면을 승인했는지 확인할 수 있습니다.
+              </small>
+            <?php endif; ?>
+          </div>
+
           <div class="mb-3">
             <strong class="small">📋 발송 전 체크리스트</strong>
             <div class="form-check mt-2">

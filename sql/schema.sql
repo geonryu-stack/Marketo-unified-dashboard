@@ -1,7 +1,7 @@
 -- sql/schema.sql
 -- 신규 설치 시 이 한 파일로 최신 상태 완성. 기존 환경은 sql/migrations/*.sql 순서대로 적용.
 -- 최종 업데이트: 2026-05-20 — 모든 migration 통합 (approval, bulk_import, delivery_tracking,
---                                token_fields, defaults, segment_id_index, run_id, status_history)
+--                                token_fields, defaults, segment_id_index, run_id, status_history, screenshot)
 CREATE DATABASE IF NOT EXISTS `marketo_automation`
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `marketo_automation`;
@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS `campaigns` (
   `approved_at` VARCHAR(50) DEFAULT NULL,
   `rejected_at` VARCHAR(50) DEFAULT NULL,
   `reject_memo` TEXT DEFAULT NULL,
+  `test_screenshot_path` VARCHAR(255) DEFAULT NULL COMMENT 'awaiting_approval 단계에서 운영자가 첨부한 테스트 메일 스크린샷 경로',
   `run_id` VARCHAR(36) DEFAULT NULL COMMENT '발송 1회 추적 UUID',
   PRIMARY KEY (`id`),
   KEY `idx_segment_id` (`segment_id`)
