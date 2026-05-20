@@ -80,6 +80,56 @@ function mask_email_pii(string $email): string
     return $local_prefix . '***@' . $domain_prefix . '***.' . $tld;
 }
 
+/**
+ * C-LEAD-COUNT (CRITICS.md §2 ★★★) — segments.last_count 대비 드리프트 검사.
+ *
+ * Sprint 1 DB 트랙. ScheduleRunner.extract_campaign_leads()에서
+ * 새 추출 카운트가 박제(UPDATE)되기 *직전*에 호출하여 이전 회차 대비 임계치를
+ * 넘는 증감을 잡는다. 사내 DB 스키마 변경/필터 의미 변경으로 인한
+ * "조용한 폭주(+700%)" 또는 "조용한 실종(-90%)"을 운영자에게 노출한다.
+ *
+ *  - last_count NULL  : 첫 추출 → 비교 불가 → null 반환 (무경고)
+ *  - 변동률 ≤ threshold : null (무경고)
+ *  - 변동률 > threshold : 사람이 읽을 수 있는 경고 문자열 반환
+ *
+ * 호출자는 이 결과를 캠페인 결재 카드/needs_manual_review 결정 분기에서 사용.
+ * 본 함수는 순수 조회/계산 — 사이드이펙트 없음 (DB UPDATE는 호출자 책임).
+ *
+ * @param string $segment_id     segments.id
+ * @param int    $current_count  새로 추출된 대상자 수
+ * @param float  $threshold      0..1 비율. 기본 0.5 (=50% 편차).
+ * @return string|null           null=정상/첫회차, 문자열=운영자 표시용 경고 메시지
+ */
+function check_lead_count_drift(string $segment_id, int $current_count, float $threshold = 0.5): ?string
+{
+    $row = DB::one('SELECT last_count FROM segments WHERE id=?', [$segment_id]);
+    if ($row === null || !isset($row['last_count']) || $row['last_count'] === null) {
+        return null; // 첫 회차 — 비교 기준 없음
+    }
+
+    $last = (int)$row['last_count'];
+    // 분모 0 회피: max(last, 1). last=0인 경우(가능성 낮음) current>0이면 무한대 → 임계 항상 초과.
+    $denom  = max($last, 1);
+    $delta  = $current_count - $last;
+    $ratio  = abs($delta) / $denom;
+
+    if ($ratio <= $threshold) {
+        return null;
+    }
+
+    $sign      = $delta >= 0 ? '+' : '-';
+    $pct       = (int)round(abs($delta) / $denom * 100);
+    $thresh_pct = (int)round($threshold * 100);
+    return sprintf(
+        '이전 추출 %s명 → 현재 %s명 (%s%d%%) — 드리프트 임계치(%d%%) 초과',
+        number_format($last),
+        number_format($current_count),
+        $sign,
+        $pct,
+        $thresh_pct
+    );
+}
+
 // ── 세그먼트 필드 정의 (FIELD_DEFS 이식) ─────────────────────
 
 function get_field_defs(): array

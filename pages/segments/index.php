@@ -17,7 +17,14 @@ include __DIR__ . '/../layout_header.php';
     <tr>
       <td><?= htmlspecialchars($seg['name']) ?></td>
       <td><?= $seg['last_extracted_at'] ? substr($seg['last_extracted_at'], 0, 16) : '-' ?></td>
-      <td><?= $seg['last_count'] !== null ? number_format((int)$seg['last_count']) . '명' : '-' ?></td>
+      <td>
+        <?php if ($seg['last_count'] !== null): ?>
+          <?= number_format((int)$seg['last_count']) ?>명
+          <br><small class="text-muted">스냅샷 1회차 — 변동량은 다음 sprint에서</small>
+        <?php else: ?>
+          <span class="text-muted">첫 추출 전</span>
+        <?php endif; ?>
+      </td>
       <td><?= $seg['is_recurring'] ? '<span class="badge bg-success">반복</span>' : '-' ?></td>
       <td class="text-end">
         <a href="<?= APP_URL ?>/segments/<?= $seg['id'] ?>/edit" class="btn btn-sm btn-outline-secondary">편집</a>

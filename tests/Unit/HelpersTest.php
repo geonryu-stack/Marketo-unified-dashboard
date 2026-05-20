@@ -254,4 +254,96 @@ final class HelpersTest extends TestCase
         $this->assertNotNull($returnType, '반환 타입이 선언되어 있어야 함');
         $this->assertSame('string', (string)$returnType);
     }
+
+    // ── check_lead_count_drift (Sprint 1 DB — C-LEAD-COUNT) ──────
+    //
+    // 본 헬퍼는 DB::one('SELECT last_count FROM segments WHERE id=?') 한 번만 호출한다.
+    // PHP는 정적 메서드 모의가 까다로워, 테스트 부트스트랩에서 `DB` 클래스를
+    // 가벼운 인메모리 스텁(FakeDB.php → 별도 alias)으로 갈음한다.
+    // 본 테스트군은 그 스텁의 last_count 슬롯을 직접 세팅해 분기 검증.
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        if (!class_exists('DB', false)) {
+            // 테스트 전용 페이크 DB — production DB.php와 동일 시그니처(static one/exec/all).
+            eval('class DB {
+                public static array $segments = [];
+                public static function one(string $sql, array $params = []): ?array {
+                    if (str_contains($sql, "FROM segments") && str_contains($sql, "last_count")) {
+                        $id = $params[0] ?? "";
+                        return self::$segments[$id] ?? null;
+                    }
+                    return null;
+                }
+                public static function exec(string $sql, array $params = []): int { return 0; }
+                public static function all(string $sql, array $params = []): array { return []; }
+            }');
+        }
+        DB::$segments = [];
+    }
+
+    public function testDriftReturnsNullWhenLastCountIsNull(): void
+    {
+        // 첫 회차: segments에 행이 아예 없거나 last_count=null → 비교 기준 없음 → null.
+        DB::$segments['seg-A'] = ['last_count' => null];
+        $this->assertNull(check_lead_count_drift('seg-A', 1500));
+
+        DB::$segments = []; // 행 자체가 없는 케이스도 동일하게 null.
+        $this->assertNull(check_lead_count_drift('seg-A', 1500));
+    }
+
+    public function testDriftReturnsNullWhenCountIsIdentical(): void
+    {
+        DB::$segments['seg-B'] = ['last_count' => 1000];
+        $this->assertNull(check_lead_count_drift('seg-B', 1000));
+    }
+
+    public function testDriftReturnsNullWhenChangeBelowThreshold(): void
+    {
+        // 1000 → 1300 = +30% < 50% → 무경고
+        DB::$segments['seg-C'] = ['last_count' => 1000];
+        $this->assertNull(check_lead_count_drift('seg-C', 1300));
+        // 1000 → 700 = -30% < 50% → 무경고
+        $this->assertNull(check_lead_count_drift('seg-C', 700));
+        // 경계값(정확히 50%) — threshold 초과가 아니므로 null
+        $this->assertNull(check_lead_count_drift('seg-C', 1500));
+        $this->assertNull(check_lead_count_drift('seg-C', 500));
+    }
+
+    public function testDriftWarnsOnLargeIncrease(): void
+    {
+        // 1500 → 12000 = +700% → 경고
+        DB::$segments['seg-D'] = ['last_count' => 1500];
+        $msg = check_lead_count_drift('seg-D', 12000);
+        $this->assertNotNull($msg);
+        $this->assertStringContainsString('1,500', $msg);
+        $this->assertStringContainsString('12,000', $msg);
+        $this->assertStringContainsString('+700%', $msg);
+        $this->assertStringContainsString('50%', $msg);
+        $this->assertStringContainsString('드리프트', $msg);
+    }
+
+    public function testDriftWarnsOnLargeDecrease(): void
+    {
+        // 10000 → 1000 = -90% → 경고
+        DB::$segments['seg-E'] = ['last_count' => 10000];
+        $msg = check_lead_count_drift('seg-E', 1000);
+        $this->assertNotNull($msg);
+        $this->assertStringContainsString('10,000', $msg);
+        $this->assertStringContainsString('1,000', $msg);
+        $this->assertStringContainsString('-90%', $msg);
+        $this->assertStringContainsString('드리프트', $msg);
+    }
+
+    public function testDriftHonorsCustomThreshold(): void
+    {
+        // 1000 → 1200 = +20%. 기본 threshold(50%)에선 무경고지만 10% threshold로는 경고.
+        DB::$segments['seg-F'] = ['last_count' => 1000];
+        $this->assertNull(check_lead_count_drift('seg-F', 1200, 0.5));
+        $msg = check_lead_count_drift('seg-F', 1200, 0.1);
+        $this->assertNotNull($msg);
+        $this->assertStringContainsString('+20%', $msg);
+        $this->assertStringContainsString('10%', $msg); // threshold 표시
+    }
 }

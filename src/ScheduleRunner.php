@@ -81,6 +81,12 @@ function extract_campaign_leads(array $c, array $seg, callable $log): array
         $summary = implode(', ', array_map(fn($l) => is_array($l) ? "{$l['email']}({$l['country']})" : $l, $leads));
         $log('extract', 'done', "[우회 모드] {$cnt}명: {$summary}");
         DB::exec('UPDATE campaigns SET lead_count=?, updated_at=? WHERE id=?', [$cnt, now_str(), $id]);
+        // Sprint 1 DB — C-LEAD-COUNT: segments에도 last_count 박제(드리프트 비교 기준점).
+        // bypass 모드도 동일하게 적용 — 운영자가 우회 명단을 변경했을 때 추적 가능.
+        DB::exec(
+            'UPDATE segments SET last_count=?, last_extracted_at=? WHERE id=?',
+            [$cnt, now_str(), $c['segment_id']]
+        );
         return $leads;
     }
 
@@ -95,6 +101,12 @@ function extract_campaign_leads(array $c, array $seg, callable $log): array
         $cnt    = count($emails);
         $log('extract', 'done', "추출 완료: {$cnt}명");
         DB::exec('UPDATE campaigns SET lead_count=?, updated_at=? WHERE id=?', [$cnt, now_str(), $id]);
+        // Sprint 1 DB — C-LEAD-COUNT: segments에도 last_count 박제(드리프트 비교 기준점).
+        // 다음 회차 추출 직전에 check_lead_count_drift()가 이 값을 기준으로 ±50% 편차를 감지.
+        DB::exec(
+            'UPDATE segments SET last_count=?, last_extracted_at=? WHERE id=?',
+            [$cnt, now_str(), $c['segment_id']]
+        );
         return $emails;
     }
 
