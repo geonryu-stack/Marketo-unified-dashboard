@@ -46,6 +46,24 @@ include __DIR__ . '/../layout_header.php';
   <div id="preview-sample"></div>
 
   <h5 class="mt-4">Marketo 연결</h5>
+
+  <!-- Marketo URL 자동 파싱 (Operator Onboarding) -->
+  <div class="border rounded p-3 mb-3 bg-light">
+    <label class="form-label mb-1">
+      <strong>📋 Marketo URL 자동 입력</strong>
+      <small class="text-muted fw-normal d-block mt-1">
+        Marketo에서 객체 페이지를 열고 주소창의 URL을 그대로 붙여넣으면<br>
+        ID 종류를 자동 식별해 아래 해당 필드에 채워줍니다.
+      </small>
+    </label>
+    <div class="d-flex gap-2">
+      <input type="url" class="form-control form-control-sm" id="marketo-url-input"
+             placeholder="https://app-XXX.marketo.com/#SC7610A1">
+      <button type="button" class="btn btn-outline-primary btn-sm" id="marketo-url-parse">자동 채움</button>
+    </div>
+    <div class="small mt-1" id="marketo-url-result"></div>
+  </div>
+
   <div class="row g-3 mb-2">
     <div class="col-md-6">
       <label class="form-label">발송 그룹 프리셋 <small class="text-muted fw-normal">(선택 시 아래 3개 ID 자동 채움)</small></label>

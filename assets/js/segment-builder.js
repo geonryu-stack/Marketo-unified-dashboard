@@ -590,3 +590,43 @@ function _setSelectValueOrAddOption(sel, value, label) {
 }
 
 document.addEventListener('DOMContentLoaded', _loadEmailProgramOptions);
+
+// ── Marketo URL 자동 파싱 (Operator Onboarding) ───────────────
+async function _parseMarketoUrl() {
+  const input  = document.getElementById('marketo-url-input');
+  const result = document.getElementById('marketo-url-result');
+  if (!input || !result) return;
+  const url = input.value.trim();
+  if (!url) { result.innerHTML = '<span class="text-warning">URL을 붙여넣으세요.</span>'; return; }
+  try {
+    const res = await fetch(APP_URL + '/api/marketo-url-parse', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json();
+    if (!data.success) { result.innerHTML = '<span class="text-danger">파싱 실패: ' + data.error + '</span>'; return; }
+    const d = data.data;
+    const targetId = { 'marketo_program_id':'m-program-id', 'marketo_audience_list_id':'m-list-id', 'marketo_email_program_id':'m-ep-id' }[d.column];
+    if (targetId) {
+      const target = document.getElementById(targetId);
+      if (target) {
+        if (target.tagName === 'SELECT') {
+          _setSelectValueOrAddOption(target, d.id, d.label + ' #' + d.id);
+        } else {
+          target.value = d.id;
+        }
+        result.innerHTML = `<span class="text-success">✓ <strong>${d.label}</strong> (ID ${d.id}) → 아래 "${d.column}" 필드에 자동 입력됨</span>`;
+        return;
+      }
+    }
+    result.innerHTML = `<span class="text-info">감지: <strong>${d.label}</strong> (ID ${d.id}). 매칭되는 입력 필드 없음 — 운영 메모에만 활용하세요.</span>`;
+  } catch (e) {
+    result.innerHTML = '<span class="text-danger">네트워크 오류: ' + e.message + '</span>';
+  }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('marketo-url-parse');
+  if (btn) btn.addEventListener('click', _parseMarketoUrl);
+  const input = document.getElementById('marketo-url-input');
+  if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); _parseMarketoUrl(); } });
+});

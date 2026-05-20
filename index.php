@@ -92,6 +92,11 @@ $router->add('GET', '/api/groups', function ($p) {
     require_once __DIR__ . '/api/groups.php';
 });
 
+// Post-S3 운영자 온보딩 — Marketo URL → ID 자동 파싱
+$router->add('POST', '/api/marketo-url-parse', function ($p) {
+    require_once __DIR__ . '/api/marketo-url-parse.php';
+});
+
 // Post-S3 운영자 피드백 #3 — 직전 회차 토큰 복사
 $router->add('GET', '/api/segments/{id}/latest-tokens', function ($p) {
     $GLOBALS['route_params'] = $p;
