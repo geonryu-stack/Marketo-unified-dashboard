@@ -369,10 +369,14 @@ function initLengthGuides() {
 // ──────────────────────────────────────────────────────────
 
 /**
- * 콘텐츠 프리셋 (v1 — JS 상수). 운영자가 드롭다운으로 선택해
- * emoji/email_title/email_preheader 3개 input에 일괄 주입.
- * reward_url은 회차마다 다르므로 프리셋에 포함되지 않음.
- * v2에서 content_presets 테이블 + /api/content-presets 로 이관 예정.
+ * 콘텐츠 프리셋 (v1 — JS 상수, v2부터는 fallback).
+ *
+ * Sprint 3 ASSET 부터:
+ *  - 1차: loadContentPresets()가 /api/content-presets에서 DB 프리셋을 가져옴.
+ *  - 2차(fallback): API 실패 시 이 상수를 사용.
+ *
+ * 드롭다운 option은 항상 (label, dataset.emoji, dataset.title, dataset.preheader)
+ * 형태로 통일되도록 _populatePresetSelect()에서 정규화한다.
  */
 const CONTENT_PRESETS = [
   {
@@ -500,30 +504,249 @@ window.initLivePreview = function (formSelector = '#campaign-form', previewSelec
   });
 
   // 프리셋 드롭다운: 선택 시 3개 input 채우고 미리보기 갱신
+  // Sprint 3 ASSET — DB 우선, 실패 시 JS 상수 fallback.
   const presetSelect = form.querySelector('select[name="content_preset"]');
   if (presetSelect && !presetSelect.dataset.populated) {
     presetSelect.dataset.populated = '1';
-    presetSelect.appendChild(new Option('— 프리셋을 선택하세요 —', ''));
-    CONTENT_PRESETS.forEach((p, i) => {
-      presetSelect.appendChild(new Option(p.label, String(i)));
-    });
+
+    // 변경 핸들러: option.dataset에서 값 읽기 (DB/fallback 구분 불필요).
     presetSelect.addEventListener('change', (e) => {
-      const idx = parseInt(e.target.value, 10);
-      if (isNaN(idx) || !CONTENT_PRESETS[idx]) return;
-      const p = CONTENT_PRESETS[idx];
+      const opt = e.target.options[e.target.selectedIndex];
+      if (!opt || !opt.value) return;
       const emoji = form.querySelector('input[name="emoji"]');
       const title = form.querySelector('input[name="email_title"]');
       const pre   = form.querySelector('input[name="email_preheader"]');
-      if (emoji) emoji.value = p.emoji;
-      if (title) title.value = p.title;
-      if (pre)   pre.value   = p.preheader;
-      // 길이 가이드 카운터 갱신
+      if (emoji) emoji.value = opt.dataset.emoji     ?? '';
+      if (title) title.value = opt.dataset.title     ?? '';
+      if (pre)   pre.value   = opt.dataset.preheader ?? '';
       [emoji, title, pre].forEach(inp => inp?.dispatchEvent(new Event('input', { bubbles: true })));
       render();
     });
+
+    // 초기 채움 (비동기 — render는 즉시 1회 호출)
+    loadContentPresets(presetSelect);
   }
 
   render();
+};
+
+/**
+ * /api/content-presets 에서 DB 프리셋을 가져와 select를 채운다.
+ * 실패 시 CONTENT_PRESETS 상수로 fallback.
+ *
+ * option 정규화:
+ *   value           = preset.id (DB) 또는 'fallback-N' (상수)
+ *   text            = preset.label
+ *   dataset.emoji     = preset.emoji
+ *   dataset.title     = preset.title_template (DB) 또는 preset.title (fallback)
+ *   dataset.preheader = preset.preheader_template (DB) 또는 preset.preheader (fallback)
+ */
+async function loadContentPresets(selectEl) {
+  if (!selectEl) return;
+  // 기본 placeholder 먼저 (네트워크 지연 동안에도 UI 비지 않게)
+  selectEl.replaceChildren(new Option('— 프리셋을 선택하세요 —', ''));
+
+  let presets = null;
+  try {
+    const url = (typeof APP_URL !== 'undefined' ? APP_URL : '') + '/api/content-presets';
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (data && data.success && Array.isArray(data.data?.presets)) {
+      presets = data.data.presets.map(p => ({
+        id:        p.id,
+        label:     p.label,
+        emoji:     p.emoji              ?? '',
+        title:     p.title_template     ?? '',
+        preheader: p.preheader_template ?? '',
+      }));
+    }
+  } catch (_) {
+    // 네트워크 실패 → fallback
+  }
+
+  if (!presets || presets.length === 0) {
+    presets = CONTENT_PRESETS.map((p, i) => ({
+      id:        `fallback-${i}`,
+      label:     p.label,
+      emoji:     p.emoji,
+      title:     p.title,
+      preheader: p.preheader,
+    }));
+  }
+
+  presets.forEach(p => {
+    const opt = new Option(p.label, p.id);
+    opt.dataset.emoji     = p.emoji     ?? '';
+    opt.dataset.title     = p.title     ?? '';
+    opt.dataset.preheader = p.preheader ?? '';
+    selectEl.appendChild(opt);
+  });
+}
+
+// ── 프리셋 관리 모달 (Sprint 3 ASSET) ─────────────────────────
+//
+// new.php/edit.php의 "프리셋" select 옆 "+" 버튼이 호출. 1뷰에서:
+//  - 기존 프리셋 목록 (DB) + 삭제 버튼
+//  - 신규 추가 폼 (label, emoji, title, preheader)
+//
+// 모달이 닫힐 때 같은 페이지의 select를 재로드한다.
+
+window.openPresetManagerModal = function (presetSelectEl) {
+  // Bootstrap modal HTML 동적 생성 (페이지에 미리 두지 않아 footer-script 의존 최소화)
+  let modalEl = document.getElementById('preset-manager-modal');
+  if (!modalEl) {
+    modalEl = document.createElement('div');
+    modalEl.id = 'preset-manager-modal';
+    modalEl.className = 'modal fade';
+    modalEl.tabIndex = -1;
+    modalEl.innerHTML = `
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">콘텐츠 프리셋 관리</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+          </div>
+          <div class="modal-body">
+            <h6>기존 프리셋</h6>
+            <div id="preset-list" class="mb-4"><div class="text-muted small">로딩 중...</div></div>
+            <hr>
+            <h6>신규 프리셋 추가</h6>
+            <form id="preset-new-form" class="row g-2">
+              <div class="col-md-3">
+                <label class="form-label small mb-1">레이블 *</label>
+                <input type="text" class="form-control form-control-sm" name="label" required>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">이모지</label>
+                <input type="text" class="form-control form-control-sm" name="emoji" maxlength="20" placeholder="🎁">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small mb-1">제목</label>
+                <input type="text" class="form-control form-control-sm" name="title_template">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small mb-1">프리헤더</label>
+                <input type="text" class="form-control form-control-sm" name="preheader_template">
+              </div>
+              <div class="col-md-1 d-flex align-items-end">
+                <button type="submit" class="btn btn-sm btn-primary w-100">추가</button>
+              </div>
+            </form>
+            <div id="preset-error" class="text-danger small mt-2" style="display:none;"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modalEl);
+  }
+
+  const listEl  = modalEl.querySelector('#preset-list');
+  const formEl  = modalEl.querySelector('#preset-new-form');
+  const errEl   = modalEl.querySelector('#preset-error');
+
+  const showError = (msg) => {
+    errEl.textContent = msg;
+    errEl.style.display = msg ? 'block' : 'none';
+  };
+
+  // 목록 로드/렌더
+  const reload = async () => {
+    showError('');
+    listEl.innerHTML = '<div class="text-muted small">로딩 중...</div>';
+    try {
+      const res  = await fetch(`${APP_URL}/api/content-presets`);
+      const data = await res.json();
+      const presets = (data?.data?.presets) || [];
+      if (presets.length === 0) {
+        listEl.innerHTML = '<div class="text-muted small">DB에 저장된 프리셋이 없습니다. 신규 추가 또는 fallback 상수 사용 중.</div>';
+        return;
+      }
+      listEl.innerHTML = `
+        <table class="table table-sm align-middle">
+          <thead><tr><th>레이블</th><th>이모지</th><th>제목</th><th>프리헤더</th><th></th></tr></thead>
+          <tbody>
+            ${presets.map(p => `
+              <tr data-id="${_escHtml(p.id)}">
+                <td>${_escHtml(p.label || '')}</td>
+                <td>${_escHtml(p.emoji || '')}</td>
+                <td class="small text-muted">${_escHtml(p.title_template || '')}</td>
+                <td class="small text-muted">${_escHtml(p.preheader_template || '')}</td>
+                <td><button type="button" class="btn btn-sm btn-outline-danger preset-delete">삭제</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      listEl.querySelectorAll('.preset-delete').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const tr = e.target.closest('tr');
+          const id = tr?.dataset.id;
+          if (!id || !confirm('이 프리셋을 삭제할까요?')) return;
+          try {
+            const r = await fetch(`${APP_URL}/api/content-presets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (r.status === 204 || r.ok) {
+              await reload();
+            } else {
+              const d = await r.json().catch(() => ({}));
+              showError(d.error || '삭제 실패');
+            }
+          } catch (_) {
+            showError('네트워크 오류');
+          }
+        });
+      });
+    } catch (_) {
+      listEl.innerHTML = '<div class="text-danger small">목록 로드 실패 — API 또는 DB 확인 필요.</div>';
+    }
+  };
+
+  // 신규 추가 submit
+  if (!formEl.dataset.bound) {
+    formEl.dataset.bound = '1';
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      showError('');
+      const body = {
+        label:              formEl.label.value.trim(),
+        emoji:              formEl.emoji.value.trim(),
+        title_template:     formEl.title_template.value.trim(),
+        preheader_template: formEl.preheader_template.value.trim(),
+      };
+      if (!body.label) { showError('레이블은 필수입니다.'); return; }
+      try {
+        const r = await fetch(`${APP_URL}/api/content-presets`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.success) {
+          formEl.reset();
+          await reload();
+        } else {
+          showError(d.error || '추가 실패');
+        }
+      } catch (_) {
+        showError('네트워크 오류');
+      }
+    });
+  }
+
+  // 모달이 닫힐 때 select 재로드 (DB 변경 반영)
+  modalEl.addEventListener('hidden.bs.modal', () => {
+    if (presetSelectEl) loadContentPresets(presetSelectEl);
+  }, { once: true });
+
+  // 모달 오픈 + 목록 1회 로드
+  reload();
+  if (window.bootstrap && bootstrap.Modal) {
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  } else {
+    modalEl.style.display = 'block';
+  }
 };
 
 /** 보상 URL 정규화: trim + 줄바꿈/탭 제거 (후행 슬래시는 유지). */

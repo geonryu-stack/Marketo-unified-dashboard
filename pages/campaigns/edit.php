@@ -68,7 +68,10 @@ include __DIR__ . '/../layout_header.php';
 
       <div class="mb-3">
         <label class="form-label">콘텐츠 프리셋 <small class="text-muted fw-normal">(선택 시 이모지·제목·프리헤더 일괄 채움)</small></label>
-        <select class="form-select" name="content_preset"></select>
+        <div class="input-group">
+          <select class="form-select" name="content_preset"></select>
+          <button type="button" class="btn btn-outline-secondary" id="btn-manage-presets" title="프리셋 관리">＋ 관리</button>
+        </div>
       </div>
 
       <div class="row g-2 mb-3">
@@ -171,6 +174,14 @@ if (document.readyState === 'loading') {
 } else {
   _bootLivePreview();
 }
+
+// Sprint 3 ASSET — 프리셋 관리 모달 트리거
+document.getElementById('btn-manage-presets')?.addEventListener('click', () => {
+  const sel = document.querySelector('#edit-form select[name="content_preset"]');
+  if (typeof window.openPresetManagerModal === 'function') {
+    window.openPresetManagerModal(sel);
+  }
+});
 
 document.getElementById('edit-form').addEventListener('submit', async (e) => {
   e.preventDefault();
