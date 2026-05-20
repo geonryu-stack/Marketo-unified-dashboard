@@ -50,3 +50,8 @@ define('TOKEN_CACHE_FILE', __DIR__ . '/marketo_token.cache');
 // true면 Marketo POST/DELETE 호출 no-op + 로그만 (실제 부수효과 없음).
 // 본 sprint(S0)에서는 플래그만 정의. 실제 no-op 분기는 S1에 MKT zone에서 적용.
 define('DRY_RUN_MODE', false); // true면 Marketo POST/DELETE 호출 no-op + 로그만
+
+// ── Sprint 1 INFRA — 격리 알림용 ─────────────────────────────
+// Slack incoming webhook URL. 빈 문자열이면 알림 비활성(개발 환경에서는 stdout로만 폴백).
+// needs_manual_review 전이/연속 실패/Bulk 지연 등 HARNESS §C3 트리거가 사용.
+define('SLACK_WEBHOOK_URL', '');

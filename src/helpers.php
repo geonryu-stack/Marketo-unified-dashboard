@@ -360,3 +360,141 @@ function is_dry_run(): bool
     return defined('DRY_RUN_MODE') && DRY_RUN_MODE === true;
 }
 
+// ── Sprint 1 INFRA: 스크린샷 첨부 저장소 ─────────────────────────
+// 안정 API 시그니처 (시그니처 동결): screenshot_save(tmp_path, campaign_id, original_name): string
+//   - data/screenshots/{campaign_id}/{timestamp}_{safe_name} 형태로 저장
+//   - 상대 경로 반환 (DB 컬럼/UI에서 즉시 사용 가능)
+//   - 확장자/MIME 화이트리스트(jpg/jpeg/png/webp), 5MB 상한
+//   - 실패는 RuntimeException 으로 상위(ASSET zone)에 전달 → 사용자에게 400 응답
+
+const SCREENSHOT_MAX_BYTES        = 5 * 1024 * 1024; // 5MB
+const SCREENSHOT_ALLOWED_EXT      = ['jpg', 'jpeg', 'png', 'webp'];
+const SCREENSHOT_ALLOWED_MIME     = ['image/jpeg', 'image/png', 'image/webp'];
+const SCREENSHOT_STORAGE_SUBDIR   = 'data/screenshots';
+
+/**
+ * 업로드된 임시 파일을 영구 저장하고 상대 경로를 반환한다.
+ *
+ * @param string $tmp_path      업로드 임시 경로 ($_FILES['x']['tmp_name'] 등)
+ * @param string $campaign_id   소속 캠페인 UUID — 디렉터리 분리 키
+ * @param string $original_name 사용자 원본 파일명 — 확장자 추출/안전 문자열화에 사용
+ * @return string               예: "data/screenshots/{id}/20260520_134501_proof.png"
+ * @throws RuntimeException     파일 누락/크기 초과/포맷 불일치/디렉터리 생성 실패
+ */
+function screenshot_save(string $tmp_path, string $campaign_id, string $original_name): string
+{
+    if ($tmp_path === '' || !is_file($tmp_path)) {
+        throw new RuntimeException('screenshot_save: 업로드 파일이 존재하지 않습니다.');
+    }
+
+    // 크기 검증 (5MB 초과 차단)
+    $size = @filesize($tmp_path);
+    if ($size === false) {
+        throw new RuntimeException('screenshot_save: 파일 크기를 읽을 수 없습니다.');
+    }
+    if ($size > SCREENSHOT_MAX_BYTES) {
+        throw new RuntimeException(sprintf(
+            'screenshot_save: 파일 크기 초과(%d bytes, 한도 %d bytes)',
+            $size, SCREENSHOT_MAX_BYTES
+        ));
+    }
+
+    // 확장자 화이트리스트
+    $ext = strtolower((string)pathinfo($original_name, PATHINFO_EXTENSION));
+    if ($ext === '' || !in_array($ext, SCREENSHOT_ALLOWED_EXT, true)) {
+        throw new RuntimeException(sprintf(
+            'screenshot_save: 허용되지 않은 확장자 "%s" (허용: %s)',
+            $ext, implode(',', SCREENSHOT_ALLOWED_EXT)
+        ));
+    }
+
+    // MIME 화이트리스트 (확장자 위장 차단)
+    if (function_exists('mime_content_type')) {
+        $mime = @mime_content_type($tmp_path);
+        if ($mime !== false && $mime !== null && !in_array((string)$mime, SCREENSHOT_ALLOWED_MIME, true)) {
+            throw new RuntimeException(sprintf(
+                'screenshot_save: 허용되지 않은 MIME "%s"', (string)$mime
+            ));
+        }
+    }
+
+    // campaign_id 안전화 (디렉터리 경로 위반 차단)
+    $safe_camp = preg_replace('/[^A-Za-z0-9._-]/', '_', $campaign_id);
+    if ($safe_camp === '' || $safe_camp === null) {
+        throw new RuntimeException('screenshot_save: campaign_id 가 비어있거나 유효하지 않습니다.');
+    }
+
+    // 저장 디렉터리 보장. 프로젝트 루트는 worktree/main 모두에서 src/ 의 부모.
+    $project_root = dirname(__DIR__);
+    $rel_dir      = SCREENSHOT_STORAGE_SUBDIR . '/' . $safe_camp;
+    $abs_dir      = $project_root . '/' . $rel_dir;
+
+    if (!is_dir($abs_dir)) {
+        if (!@mkdir($abs_dir, 0775, true) && !is_dir($abs_dir)) {
+            throw new RuntimeException('screenshot_save: 저장 디렉터리 생성 실패: ' . $abs_dir);
+        }
+    }
+
+    // 파일명 안전화 + 타임스탬프 prefix
+    $safe_name = preg_replace('/[^A-Za-z0-9._-]/', '_', $original_name);
+    if ($safe_name === '' || $safe_name === null) {
+        $safe_name = 'screenshot.' . $ext;
+    }
+    $filename = date('Ymd_His') . '_' . $safe_name;
+    $rel_path = $rel_dir . '/' . $filename;
+    $abs_path = $abs_dir . '/' . $filename;
+
+    // tmp_path 가 PHP 업로드인 경우 move_uploaded_file 이 정석이나, CLI/테스트 환경에서도
+    // 동작해야 하므로 두 경로 모두 시도한다.
+    $moved = false;
+    if (is_uploaded_file($tmp_path)) {
+        $moved = @move_uploaded_file($tmp_path, $abs_path);
+    }
+    if (!$moved) {
+        $moved = @copy($tmp_path, $abs_path);
+    }
+    if (!$moved) {
+        throw new RuntimeException('screenshot_save: 파일 저장 실패: ' . $abs_path);
+    }
+
+    @chmod($abs_path, 0644);
+
+    return $rel_path;
+}
+
+// ── Sprint 1 INFRA: status_history 적재 ───────────────────────────
+// 안정 API 시그니처 (시그니처 동결):
+//   record_status_transition(campaign_id, from, to, actor='system', notes=null, run_id=null): void
+//   - status_history 테이블에 1행 INSERT (append-only)
+//   - actor: 'cron' | 'user' | 'system'
+//   - 호출자: ORCH(api/campaigns.php, ScheduleRunner, cron/*), INFRA 자체 알림 트리거
+
+/**
+ * 캠페인 상태 전이를 status_history 에 1행 기록한다.
+ *
+ * INV-01(SELECT-only)은 사내 DB(InternalDB) 한정 규칙. status_history는 우리 앱 DB 이므로
+ * INSERT 허용. UPDATE/DELETE는 하지 않는다(append-only).
+ *
+ * @param string  $campaign_id 캠페인 UUID
+ * @param ?string $from        직전 상태 (생성 시 null)
+ * @param string  $to          새 상태
+ * @param string  $actor       'cron' | 'user' | 'system'
+ * @param ?string $notes       자유 메모 (운영자 코멘트, 에러 요약 등)
+ * @param ?string $run_id      Sprint 0 INFRA의 발송 1회 추적 UUID (가능하면 함께 적재)
+ * @return void
+ */
+function record_status_transition(
+    string $campaign_id,
+    ?string $from,
+    string $to,
+    string $actor = 'system',
+    ?string $notes = null,
+    ?string $run_id = null
+): void {
+    DB::exec(
+        'INSERT INTO status_history (id, campaign_id, from_status, to_status, actor, notes, run_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [new_uuid(), $campaign_id, $from, $to, $actor, $notes, $run_id, now_str()]
+    );
+}
+
