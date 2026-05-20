@@ -429,6 +429,103 @@ class MarketoAPI
         return $activities;
     }
 
+    /**
+     * Activity Type ID 매핑.
+     * 아래 상수값은 Marketo "표준" 인스턴스의 system activity type IDs이며,
+     * 대부분의 인스턴스에서 동일하게 동작한다. 다만 일부 인스턴스에서는 ID가
+     * 다르게 발급되는 경우가 보고된 적이 있으므로(특히 Open/Click/Unsubscribe),
+     * 운영 인스턴스에서 매핑이 다를 경우 config/config.php에 다음과 같이
+     * 빼는 방안을 권장한다:
+     *
+     *   define('MARKETO_ACTIVITY_IDS', [
+     *       'sent'        => 6,
+     *       'delivered'   => 7,
+     *       'open'        => 10,
+     *       'click'       => 13,
+     *       'soft_bounce' => 11,
+     *       'hard_bounce' => 12,
+     *       'unsubscribe' => 22,
+     *   ]);
+     *
+     * 그리고 getCampaignEngagement() 도입부에서 MARKETO_ACTIVITY_IDS가 정의돼
+     * 있으면 그 값으로 덮어쓰도록 한다(현재는 표준값으로 하드코딩).
+     */
+    private const ENGAGEMENT_TYPE_IDS = [
+        'sent'        => 6,
+        'delivered'   => 7,
+        'soft_bounce' => 11,
+        'hard_bounce' => 12,
+        'open'        => 10,
+        'click'       => 13,
+        'unsubscribe' => 22,
+    ];
+
+    /**
+     * 캠페인 발송 engagement 카운트 — sent/delivered/bounce + open/click/unsubscribe.
+     *
+     * 내부적으로 getEmailActivities()를 호출하되 표준 4종(6/7/11/12) 외에
+     * Open(10) / Click(13) / Unsubscribe(22) Activity Type ID를 추가로 폴링한다.
+     * Marketo Activity API는 한 호출에서 여러 type IDs를 받을 수 있으므로
+     * 추가 API 호출 비용은 없다 (paging 페이지 수만 늘어남).
+     *
+     * 카운트 정책 (Sprint 2):
+     *  - 같은 leadId의 같은 type 중복도 dedupe 하지 않고 단순 카운트.
+     *    (unique counter는 별도 ★ 작업으로 미룸 — STRATEGY.md §5 Sprint 3 이후)
+     *  - 단, 'bounce' = soft_bounce + hard_bounce (합산).
+     *
+     * @param int    $listId   Marketo Static List ID
+     * @param string $sinceIso ISO 8601 UTC, 예: '2026-05-19T01:00:00Z'
+     * @return array{
+     *   sent:int, delivered:int, bounce:int,
+     *   soft_bounce:int, hard_bounce:int,
+     *   open:int, click:int, unsubscribe:int
+     * }
+     */
+    public static function getCampaignEngagement(int $listId, string $sinceIso): array
+    {
+        $typeIds    = array_values(self::ENGAGEMENT_TYPE_IDS);
+        $activities = self::getEmailActivities($listId, $sinceIso, $typeIds);
+        return self::tallyEngagement($activities);
+    }
+
+    /**
+     * Activity 배열을 engagement 카운트로 정제 — 순수 로직(테스트 가능).
+     * getCampaignEngagement()와 분리되어 있어 응답 정제 로직만 단위 테스트 가능.
+     *
+     * @param array $activities Marketo Activity API 응답 result 항목들
+     *                          (각 항목은 'activityTypeId' 키를 가진다고 가정)
+     */
+    public static function tallyEngagement(array $activities): array
+    {
+        $ids = self::ENGAGEMENT_TYPE_IDS;
+        $counts = [
+            'sent'        => 0,
+            'delivered'   => 0,
+            'bounce'      => 0,
+            'soft_bounce' => 0,
+            'hard_bounce' => 0,
+            'open'        => 0,
+            'click'       => 0,
+            'unsubscribe' => 0,
+        ];
+
+        foreach ($activities as $a) {
+            $tid = (int)($a['activityTypeId'] ?? 0);
+            match ($tid) {
+                $ids['sent']        => $counts['sent']++,
+                $ids['delivered']   => $counts['delivered']++,
+                $ids['soft_bounce'] => $counts['soft_bounce']++,
+                $ids['hard_bounce'] => $counts['hard_bounce']++,
+                $ids['open']        => $counts['open']++,
+                $ids['click']       => $counts['click']++,
+                $ids['unsubscribe'] => $counts['unsubscribe']++,
+                default             => null,
+            };
+        }
+        $counts['bounce'] = $counts['soft_bounce'] + $counts['hard_bounce'];
+        return $counts;
+    }
+
     public static function getPrograms(int $offset = 0): array
     {
         $data = self::curl('GET',
