@@ -16,4 +16,5 @@ data/
 
 # Claude Code / superpowers 작업 스크래치
 .claude/settings.local.json
+.claude/worktrees/
 /.superpowers/

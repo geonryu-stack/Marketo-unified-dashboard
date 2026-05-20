@@ -8,23 +8,81 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // GET /api/internal-db/fields
 if ($action === 'fields' && $method === 'GET') {
-    json_ok(array_values(array_filter(get_field_defs(), fn($d) => empty($d['hidden']))));
+    json_ok(get_field_defs());
 }
 
 // POST /api/internal-db/preview
+//
+// Body:
+//   {
+//     "filters":        [...],          // 기존 필터 배열
+//     "sample":         true|false,     // (옵션) true면 표본 10건 함께 반환
+//     "consent_guard":  true|false      // (옵션, 기본 true) marketing_consent=1 AND is_active=1 AND <user filters>
+//   }
+//
+// Response:
+//   {
+//     "count": int,
+//     "consent_guard_applied": bool,
+//     "sample": [ { email_masked, country, days_since_login }, ... ]   // sample=true 인 경우만
+//   }
+//
+// INV-01: 사내 DB는 SELECT만. assert_readonly가 항상 보호.
+// PII: sample 응답의 email은 mask_email_pii로 반드시 마스킹됨.
 elseif ($action === 'preview' && $method === 'POST') {
     try {
-        $body    = parse_json_body();
-        $filters = $body['filters'] ?? [];
-        ['sql' => $where, 'params' => $params] = build_where_clause($filters, get_field_defs());
+        $body          = parse_json_body();
+        $filters       = $body['filters'] ?? [];
+        $want_sample   = !empty($body['sample']);
+        // 기본 ON: 명시적으로 false가 오지 않은 한 동의/활성 가드 켬
+        $consent_guard = !array_key_exists('consent_guard', $body) || !empty($body['consent_guard']);
 
-        $table   = INTERNAL_DB_TABLE;
-        $sql     = "SELECT COUNT(*) AS cnt FROM `$table` WHERE $where";
-        assert_readonly($sql);
+        ['sql' => $user_where, 'params' => $params] = build_where_clause($filters, get_field_defs());
 
-        $rows  = InternalDB::query($sql, $params);
+        // consent_guard: 운영자 실수로 비동의/비활성 회원이 모수에 들어가는 사고를 막는다.
+        $guard_sql = $consent_guard
+            ? '(`marketing_consent` = 1 AND `is_active` = 1)'
+            : '1=1';
+
+        $where = "$guard_sql AND ($user_where)";
+
+        $table = INTERNAL_DB_TABLE;
+
+        // 1) COUNT (가드 적용된 WHERE 사용)
+        $count_sql = "SELECT COUNT(*) AS cnt FROM `$table` WHERE $where";
+        assert_readonly($count_sql);
+        $rows  = InternalDB::query($count_sql, $params);
         $count = (int)($rows[0]['cnt'] ?? 0);
-        json_ok(['count' => $count]);
+
+        $resp = [
+            'count'                 => $count,
+            'consent_guard_applied' => $consent_guard,
+        ];
+
+        // 2) 표본 미리보기 (옵션) — 최대 10건, PII 마스킹
+        if ($want_sample) {
+            $sample_sql = "
+                SELECT
+                    `email`,
+                    `country`,
+                    DATEDIFF(NOW(), `last_login_at`) AS days_since_login
+                FROM `$table`
+                WHERE $where
+                LIMIT 10
+            ";
+            assert_readonly($sample_sql);
+            $sample_rows = InternalDB::query($sample_sql, $params);
+
+            $resp['sample'] = array_map(function ($r) {
+                return [
+                    'email_masked'     => mask_email_pii((string)($r['email'] ?? '')),
+                    'country'          => $r['country'] ?? null,
+                    'days_since_login' => isset($r['days_since_login']) ? (int)$r['days_since_login'] : null,
+                ];
+            }, $sample_rows);
+        }
+
+        json_ok($resp);
     } catch (Throwable $e) {
         json_err($e->getMessage());
     }

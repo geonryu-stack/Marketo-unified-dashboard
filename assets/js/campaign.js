@@ -441,3 +441,67 @@ async function loadLogs() {
 
 loadLogs();
 setInterval(loadLogs, 2000);
+
+// ── 5분 취소 윈도 + 카운트다운 (ORCH Sprint 0) ──────────────────────────
+const URGENT_MS = 5 * 60 * 1000;
+
+function formatRemaining(ms) {
+  if (ms < 0) ms = 0;
+  const totalSec = Math.floor(ms / 1000);
+  const hh = Math.floor(totalSec / 3600);
+  const mm = Math.floor((totalSec % 3600) / 60);
+  const ss = totalSec % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (hh > 0) return `${pad(hh)}:${pad(mm)}:${pad(ss)}`;
+  return `${pad(mm)}:${pad(ss)}`;
+}
+
+function initCancelCountdown() {
+  const card  = document.getElementById('cancel-countdown');
+  const clock = document.getElementById('cancel-countdown-clock');
+  const btn   = document.getElementById('cancel-countdown-btn');
+  if (!card || !clock || !btn) return;
+
+  const sendTimeIso = card.getAttribute('data-send-time');
+  if (!sendTimeIso) return;
+  const targetMs = Date.parse(sendTimeIso);
+  if (isNaN(targetMs)) return;
+
+  let reloaded = false;
+
+  const tick = () => {
+    const remaining = targetMs - Date.now();
+
+    if (remaining <= 0) {
+      card.style.display = 'none';
+      if (!reloaded) {
+        reloaded = true;
+        setTimeout(() => location.reload(), 500);
+      }
+      return;
+    }
+
+    clock.textContent = formatRemaining(remaining);
+
+    if (remaining <= URGENT_MS) {
+      card.classList.add('cancel-urgent');
+      btn.classList.remove('btn-outline-danger');
+      btn.classList.add('btn-danger');
+      btn.textContent = '긴급 취소 (Marketo unapprove)';
+    } else {
+      card.classList.remove('cancel-urgent');
+      btn.classList.add('btn-outline-danger');
+      btn.classList.remove('btn-danger');
+      btn.textContent = '예약 취소';
+    }
+  };
+
+  tick();
+  setInterval(tick, 1000);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initCancelCountdown);
+} else {
+  initCancelCountdown();
+}

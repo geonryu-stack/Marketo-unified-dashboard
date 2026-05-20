@@ -107,19 +107,76 @@ function addFilter() {
   renderFilters();
 }
 
+// 동의/활성 가드 토글 현재값 읽기 (체크박스가 없는 페이지에서도 기본 ON 유지)
+function _consentGuardOn() {
+  const cb = document.getElementById('consent-guard');
+  return cb ? !!cb.checked : true;
+}
+
+async function _callPreview({ withSample }) {
+  const res = await fetch(APP_URL + '/api/internal-db/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filters,
+      sample: !!withSample,
+      consent_guard: _consentGuardOn(),
+    }),
+  });
+  return await res.json();
+}
+
 async function previewCount() {
   const el = document.getElementById('preview-count');
   el.textContent = '조회 중...';
   try {
-    const res = await fetch(APP_URL + '/api/internal-db/preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filters }),
-    });
-    const data = await res.json();
-    el.textContent = data.success ? `${data.data.count.toLocaleString()}명 해당` : data.error;
+    const data = await _callPreview({ withSample: false });
+    if (!data.success) { el.textContent = data.error; return; }
+    const guardNote = data.data.consent_guard_applied ? ' (동의자만)' : ' (가드 OFF)';
+    el.textContent = `${data.data.count.toLocaleString()}명 해당${guardNote}`;
   } catch(e) {
     el.textContent = '조회 실패';
+  }
+}
+
+async function previewSample() {
+  const countEl  = document.getElementById('preview-count');
+  const tableEl  = document.getElementById('preview-sample');
+  if (countEl) countEl.textContent = '조회 중...';
+  if (tableEl) tableEl.innerHTML   = '';
+  try {
+    const data = await _callPreview({ withSample: true });
+    if (!data.success) {
+      if (countEl) countEl.textContent = data.error;
+      return;
+    }
+    const guardNote = data.data.consent_guard_applied ? ' (동의자만)' : ' (가드 OFF)';
+    if (countEl) countEl.textContent = `${data.data.count.toLocaleString()}명 해당${guardNote}`;
+
+    if (!tableEl) return;
+    const rows = data.data.sample || [];
+    if (rows.length === 0) {
+      tableEl.innerHTML = '<div class="text-muted small mt-2">표본 데이터가 없습니다.</div>';
+      return;
+    }
+    const trs = rows.map(r => `
+      <tr>
+        <td><code>${r.email_masked ?? '***'}</code></td>
+        <td>${r.country ?? ''}</td>
+        <td>${r.days_since_login ?? ''}</td>
+      </tr>
+    `).join('');
+    tableEl.innerHTML = `
+      <div class="text-muted small mt-2">표본 ${rows.length}건 (이메일은 PII 마스킹됨)</div>
+      <table class="table table-sm table-bordered mt-1" style="max-width: 520px;">
+        <thead><tr>
+          <th>이메일 (마스킹)</th><th>국가</th><th>마지막 로그인 경과일</th>
+        </tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    `;
+  } catch(e) {
+    if (countEl) countEl.textContent = '조회 실패';
   }
 }
 
@@ -134,6 +191,9 @@ document.getElementById('segment-form').addEventListener('submit', async (e) => 
     marketo_program_id:        form.marketo_program_id.value,
     marketo_audience_list_id:  form.marketo_audience_list_id.value,
     marketo_email_program_id:  form.marketo_email_program_id.value,
+    is_recurring:              form.is_recurring.checked ? 1 : 0,
+    send_day_of_week:          parseInt(form.send_day_of_week.value),
+    recurring_send_time:       form.recurring_send_time.value,
   };
 
   const url    = SEGMENT_ID ? APP_URL + '/api/segments/' + SEGMENT_ID : APP_URL + '/api/segments';

@@ -174,12 +174,38 @@ $is_urgent      = $hours_to_send !== null && $hours_to_send >= 0 && $hours_to_se
   <?php endif; ?>
 </div>
 
+<?php
+// ORCH Sprint 0 — 5분 취소 윈도 카운트다운
+// 발송 예정 시각 = scheduled_at 날짜 + send_time(HH:MM) UTC. api/campaigns.php의 schedule 로직과 일치.
+$send_dt_iso = null;
+if ($c['status'] === 'scheduled') {
+    $raw_st = $c['send_time'] ?? '';
+    if (strlen($raw_st) > 5) {
+        // full datetime (YYYY-MM-DDTHH:MM)
+        $send_dt_iso = date('Y-m-d\TH:i:s', strtotime($raw_st)) . '+0000';
+    } elseif (preg_match('/^\d{2}:\d{2}$/', $raw_st)) {
+        $date_part   = date('Y-m-d', strtotime($c['scheduled_at']));
+        $send_dt_iso = $date_part . 'T' . $raw_st . ':00+0000';
+    } else {
+        $send_dt_iso = date('Y-m-d\TH:i:s', strtotime($c['scheduled_at'])) . '+0000';
+    }
+}
+?>
+<?php if ($c['status'] === 'scheduled'): ?>
+<div id="cancel-countdown" class="cancel-countdown mb-3" data-send-time="<?= htmlspecialchars($send_dt_iso) ?>">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <div class="cancel-countdown-label">발송까지 남은 시간</div>
+      <div class="cancel-countdown-clock" id="cancel-countdown-clock">--:--</div>
+    </div>
+    <button class="btn btn-outline-danger btn-lg" id="cancel-countdown-btn" onclick="campaign.cancel()">예약 취소</button>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="d-flex gap-2 mb-4 flex-wrap">
   <?php if ($can_edit && $c['status'] !== 'awaiting_approval'): ?>
     <a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>/edit" class="btn btn-primary">편집 및 테스트 재발송</a>
-  <?php endif; ?>
-  <?php if ($c['status'] === 'scheduled'): ?>
-    <button class="btn btn-outline-danger" onclick="campaign.cancel()">예약 취소 (결재 대기로 복귀)</button>
   <?php endif; ?>
   <button class="btn btn-outline-primary" onclick="campaign.duplicate()">다음 회차 복제</button>
   <button class="btn btn-outline-danger ms-auto" onclick="campaign.deleteCampaign()">삭제</button>

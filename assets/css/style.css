@@ -13,3 +13,36 @@ body { background-color: #f8f9fa; }
 .char-counter      { font-variant-numeric: tabular-nums; }
 .char-counter.char-warn { color: #b8860b; }
 .char-counter.char-over { color: #dc3545; font-weight: 600; }
+
+/* Sprint 0 ORCH — 5분 취소 윈도 카운트다운 */
+.cancel-countdown {
+  background-color: #e9ecef;
+  color: #212529;
+  border: 1px solid #ced4da;
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+.cancel-countdown-label {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin-bottom: 0.25rem;
+}
+.cancel-countdown-clock {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.cancel-countdown.cancel-urgent {
+  background-color: #dc3545;
+  color: #ffffff;
+  border-color: #b02a37;
+  animation: cancel-pulse 1.2s ease-in-out infinite;
+}
+.cancel-countdown.cancel-urgent .cancel-countdown-label { opacity: 0.95; }
+@keyframes cancel-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.55); }
+  70%  { box-shadow: 0 0 0 14px rgba(220, 53, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+}

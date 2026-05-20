@@ -182,8 +182,27 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
 
     // 토큰 주입은 Email Asset Library 폴더만 건드리므로 EP 자체에는 영향 없음 → 안전 구간
     $log('inject_tokens', 'running', "발송 Program($send_program_id) My Token 주입 시작");
-    MarketoAPI::syncProgramMyTokens($send_program_id, build_campaign_tokens($c));
+    $expected_tokens = build_campaign_tokens($c);
+    MarketoAPI::syncProgramMyTokens($send_program_id, $expected_tokens);
     $log('inject_tokens', 'done', '4개 토큰 주입 완료 [Emoji, Title, Preheader, RewardUrl]');
+
+    // ── C-TOKEN-VERIFY (CRITICS.md §2 ★★★) ────────────────────
+    // 주입 직후 GET으로 echo-back 검증. Marketo 폴더 동기화 race / 캐시 / 권한 문제로 인한
+    // "사일런트 미반영"을 잡는다. 위험구간(EP unapprove/schedule) 진입 **전**이므로
+    // throw해도 EP 상태에 영향 없음 → 일반 RuntimeException으로 'failed' 처리 가능
+    // (CampaignNeedsReviewException 아님, sibling 차단 미발동).
+    $log('verify_tokens', 'running', "C-TOKEN-VERIFY echo-back 시작 (Program $send_program_id)");
+    $actual_tokens = MarketoAPI::getProgramTokens($send_program_id);
+    $mismatches    = diff_campaign_tokens($expected_tokens, $actual_tokens);
+    if (!empty($mismatches)) {
+        throw new RuntimeException(
+            'C-TOKEN-VERIFY 실패 — Marketo에 주입된 토큰 값이 기대값과 다릅니다. '
+            . '폴더 동기화 race / 캐시 / 권한 문제일 수 있습니다. 잠시 후 재시도하거나 '
+            . 'Marketo UI에서 Program ' . $send_program_id . ' 의 토큰을 직접 확인하세요. '
+            . '불일치: ' . implode(' | ', $mismatches)
+        );
+    }
+    $log('verify_tokens', 'done', 'C-TOKEN-VERIFY echo-back 통과');
 
     // EP 진입 직전에 marketo_email_program_id를 DB에 미리 저장.
     // 위험 구간 도중 실패해도 이 ID가 보존되어 cancel 시 unapprove 가능.

@@ -17,8 +17,9 @@
 | 4 | `migrations/bulk_import.sql` | 2026-04 | `bulk_job_id`, `bulk_status`, `bulk_started_at` 추적 |
 | 5 | `migrations/segment_id_index.sql` | 2026-05 | `campaigns.segment_id` 인덱스 (sibling CAS 성능) |
 | 6 | `migrations/approval.sql` | 2026-05-12 | 결재 워크플로 컬럼 + 기존 `test_sent` → `awaiting_approval` 데이터 이행 |
+| 7 | `migrations/run_id.sql` | 2026-05-20 | Sprint 0 INFRA — `campaigns.run_id` + `job_logs.run_id` (+인덱스), 발송 1회 추적 UUID |
 
-> 일자는 기존 commit history 기준. 신규 환경에서는 `schema.sql` 1회만 실행하면 위 6개를 모두 반영한 상태가 된다.
+> 일자는 기존 commit history 기준. 신규 환경에서는 `schema.sql` 1회만 실행하면 위 7개를 모두 반영한 상태가 된다.
 
 ## 실행 예시
 

@@ -48,6 +48,38 @@ function assert_readonly(string $sql): void
     }
 }
 
+// ── PII 마스킹: 표본 미리보기 ────────────────────────────────
+// 사내 DB 표본을 화면에 노출할 때 평문 이메일을 차단.
+//   - 로컬파트: 앞 2자 + ***
+//   - 도메인:   앞 2자 + ***. + TLD(마지막 . 이후)
+// 이메일 형식 아니면 "***" 반환.
+function mask_email_pii(string $email): string
+{
+    $email = trim($email);
+    if ($email === '') return '***';
+
+    $at = strrpos($email, '@');
+    if ($at === false || $at === 0 || $at === strlen($email) - 1) {
+        return '***';
+    }
+
+    $local  = substr($email, 0, $at);
+    $domain = substr($email, $at + 1);
+
+    $dot = strrpos($domain, '.');
+    if ($dot === false || $dot === 0 || $dot === strlen($domain) - 1) {
+        return '***';
+    }
+
+    $domain_main = substr($domain, 0, $dot);
+    $tld         = substr($domain, $dot + 1);
+
+    $local_prefix  = mb_substr($local, 0, 2, 'UTF-8');
+    $domain_prefix = mb_substr($domain_main, 0, 2, 'UTF-8');
+
+    return $local_prefix . '***@' . $domain_prefix . '***.' . $tld;
+}
+
 // ── 세그먼트 필드 정의 (FIELD_DEFS 이식) ─────────────────────
 
 function get_field_defs(): array
@@ -189,6 +221,53 @@ function build_campaign_tokens(array $c): array
 }
 
 /**
+ * Marketo 토큰 응답의 키 이름을 정규화한다.
+ * Marketo API는 토큰 이름을 'my.Emoji' 또는 'Emoji' 둘 중 어느 형태로도 돌려줄 수 있다.
+ * 'my.' 접두사를 안전하게 제거하여 비교 가능한 키로 만든다.
+ */
+function normalize_token_name(string $name): string
+{
+    return str_starts_with($name, 'my.') ? substr($name, 3) : $name;
+}
+
+/**
+ * C-TOKEN-VERIFY: 기대 토큰 배열과 Marketo 응답을 비교해 불일치 목록을 반환한다.
+ * 순수 함수(외부 호출 없음) — 단위 테스트 가능.
+ *
+ * @param array $expected build_campaign_tokens() 결과 형식
+ * @param array $actual   MarketoAPI::getProgramTokens() 응답 형식
+ * @return string[]       빈 배열이면 모두 일치. 그 외엔 사람이 읽을 수 있는 diff 메시지 목록.
+ */
+function diff_campaign_tokens(array $expected, array $actual): array
+{
+    $actual_map = [];
+    foreach ($actual as $t) {
+        if (!isset($t['name'])) continue;
+        $key = normalize_token_name((string)$t['name']);
+        $actual_map[$key] = (string)($t['value'] ?? '');
+    }
+
+    $mismatches = [];
+    foreach ($expected as $t) {
+        $key            = (string)($t['name']  ?? '');
+        $expected_value = (string)($t['value'] ?? '');
+
+        if (!array_key_exists($key, $actual_map)) {
+            $mismatches[] = "{$key}: missing in Marketo response";
+            continue;
+        }
+        $actual_value = $actual_map[$key];
+        if ($expected_value !== $actual_value) {
+            $exp_disp = str_replace('"', '\\"', $expected_value);
+            $act_disp = str_replace('"', '\\"', $actual_value);
+            $mismatches[] = "{$key}: expected=\"{$exp_disp}\" vs actual=\"{$act_disp}\"";
+        }
+    }
+
+    return $mismatches;
+}
+
+/**
  * 이메일 헤더(Subject 등) 삽입용.
  * Marketo API가 비-ASCII를 Latin-1로 이중 인코딩하는 버그를 우회.
  * RFC 2047 Base64 encoded-word로 감싸 ASCII만 전송 → 이메일 클라이언트가 헤더에서 디코딩.
@@ -244,17 +323,40 @@ function parse_json_body(): array
 /**
  * stdout과 job_logs 테이블에 동시 기록. cron 전용 헬퍼였던 cron_add_log/bulk_add_log/
  * poll_log를 통합. $campaign_id가 null이면 stdout만.
+ *
+ * Sprint 0 INFRA 확장: $run_id 옵션 추가.
+ *  - 주어지면 job_logs.run_id 컬럼에 INSERT되고, stdout 라인 앞에 `[run:xxxxxxxx]`
+ *    단축 prefix(앞 8자)가 붙어 동일 발송 사이클의 로그를 grep으로 묶기 쉬워진다.
+ *  - null이면 기존 동작과 100% 동일 (BC 유지) — 컬럼은 NULL로 들어간다.
  */
-function job_log(string $message, ?string $campaign_id = null, string $step = 'cron', string $status = 'info'): void
-{
+function job_log(
+    string $message,
+    ?string $campaign_id = null,
+    string $step = 'cron',
+    string $status = 'info',
+    ?string $run_id = null
+): void {
     if (defined('RUNNING_AS_CLI') && RUNNING_AS_CLI) {
-        echo '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
+        $prefix = $run_id !== null ? '[run:' . substr($run_id, 0, 8) . '] ' : '';
+        echo '[' . date('Y-m-d H:i:s') . '] ' . $prefix . $message . PHP_EOL;
     }
     if ($campaign_id !== null) {
         DB::exec(
-            'INSERT INTO job_logs (id, campaign_id, step, status, message, created_at) VALUES (?,?,?,?,?,?)',
-            [new_uuid(), $campaign_id, $step, $status, $message, now_str()]
+            'INSERT INTO job_logs (id, campaign_id, step, status, run_id, message, created_at) VALUES (?,?,?,?,?,?,?)',
+            [new_uuid(), $campaign_id, $step, $status, $run_id, $message, now_str()]
         );
     }
+}
+
+// ── DRY_RUN_MODE 헬퍼 ─────────────────────────────────────────────
+
+/**
+ * DRY_RUN_MODE 플래그 조회. config/config.php 에 DRY_RUN_MODE=true 가 정의되어 있으면
+ * Marketo 부수효과 호출(POST/DELETE 등)을 no-op + 로그만으로 대체할 수 있다.
+ * 본 sprint(S0)에서는 플래그/헬퍼만 도입. 실제 분기는 S1에 MKT zone 에서 적용한다.
+ */
+function is_dry_run(): bool
+{
+    return defined('DRY_RUN_MODE') && DRY_RUN_MODE === true;
 }
 

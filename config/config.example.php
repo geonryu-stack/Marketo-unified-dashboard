@@ -45,3 +45,8 @@ define('MARKETO_BULK_ENABLED', true);     // false면 임계값 초과해도 RES
 
 // ── Marketo 토큰 캐시 파일 경로 ──────────────────────────────
 define('TOKEN_CACHE_FILE', __DIR__ . '/marketo_token.cache');
+
+// ── Sprint 0 INFRA 가드레일 ─────────────────────────────────
+// true면 Marketo POST/DELETE 호출 no-op + 로그만 (실제 부수효과 없음).
+// 본 sprint(S0)에서는 플래그만 정의. 실제 no-op 분기는 S1에 MKT zone에서 적용.
+define('DRY_RUN_MODE', false); // true면 Marketo POST/DELETE 호출 no-op + 로그만
