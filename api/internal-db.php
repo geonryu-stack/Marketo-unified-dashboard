@@ -88,6 +88,45 @@ elseif ($action === 'preview' && $method === 'POST') {
     }
 }
 
+// GET /api/internal-db/schema-drift
+//
+// Sprint 3 DB (④) — 운영자 수동 트리거 엔드포인트.
+// cron/check_internal_schema.php와 동일한 비교 로직을 동기 실행하고 JSON 반환.
+//
+// Response:
+//   {
+//     ok: bool,                  // 차이 없으면 true
+//     missing_in_db: [...],      // 우리가 기대했는데 사내 DB에 없는 컬럼
+//     unknown_in_db: [...],      // 사내 DB엔 있는데 우리가 모르는 컬럼
+//     checked_at: 'YYYY-mm-dd HH:ii:ss'
+//   }
+//
+// INV-01: INFORMATION_SCHEMA.COLUMNS 는 SELECT — InternalDB::query()의 assert_readonly 통과.
+// 슬랙 알림은 cron 경로에서만 발사. 운영자 수동 트리거는 결과만 반환(반복 호출시 알림 폭주 방지).
+elseif ($action === 'schema-drift' && $method === 'GET') {
+    try {
+        // main 블록 건너뛰고 함수만 사용하기 위한 가드.
+        if (!defined('INTERNAL_SCHEMA_CHECK_NO_MAIN')) {
+            define('INTERNAL_SCHEMA_CHECK_NO_MAIN', true);
+        }
+        require_once __DIR__ . '/../cron/check_internal_schema.php';
+
+        $actual   = _fetch_internal_columns();
+        $expected = _expected_internal_columns();
+        $diff     = compare_internal_schema($actual, $expected);
+        $ok       = empty($diff['missing_in_db']) && empty($diff['unknown_in_db']);
+
+        json_ok([
+            'ok'            => $ok,
+            'missing_in_db' => $diff['missing_in_db'],
+            'unknown_in_db' => $diff['unknown_in_db'],
+            'checked_at'    => now_str(),
+        ]);
+    } catch (Throwable $e) {
+        json_err($e->getMessage());
+    }
+}
+
 else {
     json_err('Not Found', 404);
 }

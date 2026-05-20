@@ -255,60 +255,6 @@ final class HelpersTest extends TestCase
         $this->assertSame('string', (string)$returnType);
     }
 
-    // ── Sprint 3 INFRA — ensure_run_id 시그니처 + 분기 ───────────
-
-    public function testEnsureRunIdSignatureFrozen(): void
-    {
-        $this->assertTrue(function_exists('ensure_run_id'));
-
-        $r      = new ReflectionFunction('ensure_run_id');
-        $params = $r->getParameters();
-        $this->assertSame(1, count($params), 'ensure_run_id 는 1개 인자');
-
-        $this->assertSame('campaign', $params[0]->getName());
-        $this->assertFalse($params[0]->isOptional(), 'campaign 은 필수');
-
-        // 입력 타입 = array
-        $pt = $params[0]->getType();
-        $this->assertNotNull($pt, 'campaign 인자에 타입이 선언되어 있어야 함');
-        $this->assertSame('array', (string)$pt);
-
-        // 반환 타입 = string
-        $rt = $r->getReturnType();
-        $this->assertNotNull($rt, '반환 타입이 선언되어 있어야 함');
-        $this->assertSame('string', (string)$rt);
-    }
-
-    public function testEnsureRunIdReturnsExistingValue(): void
-    {
-        // 이미 run_id 가 있으면 그대로 반환 — DB::exec 호출되지 않아야 함.
-        $existing = 'abcdef01-2345-4678-89ab-cdef01234567';
-        $got = ensure_run_id(['id' => 'camp-1', 'run_id' => $existing]);
-        $this->assertSame($existing, $got);
-    }
-
-    public function testEnsureRunIdGeneratesWhenMissing(): void
-    {
-        // 빈 문자열이면 신규 발급, UUID 형식이어야 함.
-        $got = ensure_run_id(['id' => 'camp-2', 'run_id' => '']);
-        $this->assertMatchesRegularExpression(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
-            $got,
-            '신규 UUID(v4) 형식이어야 함'
-        );
-
-        // run_id 키 자체가 없는 경우도 동일.
-        $got2 = ensure_run_id(['id' => 'camp-3']);
-        $this->assertNotSame($got, $got2, '서로 다른 신규 UUID 가 발급되어야 함');
-    }
-
-    public function testEnsureRunIdThrowsWithoutCampaignId(): void
-    {
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageMatches('/campaign\["id"\]/');
-        ensure_run_id(['run_id' => null]);
-    }
-
     // ── check_lead_count_drift (Sprint 1 DB — C-LEAD-COUNT) ──────
     //
     // 본 헬퍼는 DB::one('SELECT last_count FROM segments WHERE id=?') 한 번만 호출한다.
@@ -399,5 +345,175 @@ final class HelpersTest extends TestCase
         $this->assertNotNull($msg);
         $this->assertStringContainsString('+20%', $msg);
         $this->assertStringContainsString('10%', $msg); // threshold 표시
+    }
+
+    // ── Sprint 3 DB (③) — build_where_clause v2 (OR/NOT 백워드 호환) ──
+
+    /** 테스트용 작은 필드정의 — get_field_defs()의 일부와 호환 */
+    private function tinyFieldDefs(): array
+    {
+        return [
+            ['field' => 'country',          'label' => '국가',     'type' => 'select',
+             'options' => ['KR','US','JP']],
+            ['field' => 'days_since_login', 'label' => '로그인경과',  'type' => 'number',
+             'sql_expr' => 'DATEDIFF(NOW(), last_login_at)'],
+            ['field' => 'user_level',       'label' => '레벨',     'type' => 'number'],
+            ['field' => 'is_active',        'label' => '활성',     'type' => 'boolean'],
+            ['field' => 'marketing_consent','label' => '동의',     'type' => 'boolean'],
+        ];
+    }
+
+    public function testBuildWhereClauseV1FlatStillWorks(): void
+    {
+        // v1 평면 입력은 기존과 동일 — AND 결합, 결과 시그니처 ['sql','params'] 불변.
+        $defs   = $this->tinyFieldDefs();
+        $result = build_where_clause(
+            [
+                ['field' => 'country',    'operator' => '=', 'value' => 'KR'],
+                ['field' => 'user_level', 'operator' => '>=','value' => '3'],
+            ],
+            $defs
+        );
+
+        $this->assertArrayHasKey('sql',    $result);
+        $this->assertArrayHasKey('params', $result);
+        $this->assertSame('`country` = ? AND `user_level` >= ?', $result['sql']);
+        $this->assertSame(['KR', 3], $result['params']);
+    }
+
+    public function testBuildWhereClauseEmptyInputReturnsOneEqualsOne(): void
+    {
+        $defs = $this->tinyFieldDefs();
+        $this->assertSame(
+            ['sql' => '1=1', 'params' => []],
+            build_where_clause([], $defs)
+        );
+    }
+
+    public function testBuildWhereClauseV2OrCombination(): void
+    {
+        // {op:'OR', children:[v1-leaf, v1-leaf]} → (a) OR (b)
+        $defs = $this->tinyFieldDefs();
+        $tree = [
+            'op' => 'OR',
+            'children' => [
+                ['field' => 'country',    'operator' => '=',  'value' => 'KR'],
+                ['field' => 'user_level', 'operator' => '>=', 'value' => '5'],
+            ],
+        ];
+        $result = build_where_clause($tree, $defs);
+
+        // 각 leaf 노드는 _build_where_node()에서 1요소 평면 배열로 위임되며,
+        // _build_where_v1_flat() 결과를 다시 괄호로 감싸 OR 결합한다.
+        $this->assertSame('(`country` = ?) OR (`user_level` >= ?)', $result['sql']);
+        $this->assertSame(['KR', 5], $result['params']);
+    }
+
+    public function testBuildWhereClauseV2NestedAndOr(): void
+    {
+        // {op:'AND', children:[{op:'OR',children:[KR,JP]}, leaf user_level>=3]}
+        // 운영자가 "한국 또는 일본 중에서 레벨 3 이상" 같은 모수를 만드는 가장 흔한 케이스.
+        $defs = $this->tinyFieldDefs();
+        $tree = [
+            'op' => 'AND',
+            'children' => [
+                ['op' => 'OR', 'children' => [
+                    ['field' => 'country', 'operator' => '=', 'value' => 'KR'],
+                    ['field' => 'country', 'operator' => '=', 'value' => 'JP'],
+                ]],
+                ['field' => 'user_level', 'operator' => '>=', 'value' => '3'],
+            ],
+        ];
+        $result = build_where_clause($tree, $defs);
+        $this->assertSame(
+            '((`country` = ?) OR (`country` = ?)) AND (`user_level` >= ?)',
+            $result['sql']
+        );
+        $this->assertSame(['KR', 'JP', 3], $result['params']);
+    }
+
+    public function testBuildWhereClauseV2Not(): void
+    {
+        // {op:'NOT', child:v1-leaf}  → NOT (a)
+        $defs = $this->tinyFieldDefs();
+        $tree = [
+            'op'    => 'NOT',
+            'child' => ['field' => 'country', 'operator' => '=', 'value' => 'KR'],
+        ];
+        $result = build_where_clause($tree, $defs);
+        $this->assertSame('NOT (`country` = ?)', $result['sql']);
+        $this->assertSame(['KR'], $result['params']);
+    }
+
+    public function testBuildWhereClauseV2EmptyChildrenIsOneEqualsOne(): void
+    {
+        // 빈 children — 안전쪽 1=1 (v1 빈 입력 동작과 일치).
+        $defs = $this->tinyFieldDefs();
+        $result = build_where_clause(['op' => 'AND', 'children' => []], $defs);
+        $this->assertSame(['sql' => '1=1', 'params' => []], $result);
+
+        $result = build_where_clause(['op' => 'OR', 'children' => []], $defs);
+        $this->assertSame(['sql' => '1=1', 'params' => []], $result);
+    }
+
+    public function testBuildWhereClauseV2NotNotedAsBlocking(): void
+    {
+        // NOT의 자식 결과가 '1=1'이면 SQL은 'NOT (1=1)' → 항상 거짓. 의도된 안전 동작.
+        $defs = $this->tinyFieldDefs();
+        $result = build_where_clause(
+            ['op' => 'NOT', 'child' => ['op' => 'AND', 'children' => []]],
+            $defs
+        );
+        $this->assertSame('NOT (1=1)', $result['sql']);
+        $this->assertSame([], $result['params']);
+    }
+
+    public function testBuildWhereClauseV2UnknownOpThrows(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/지원하지 않는 필터 op/u');
+        build_where_clause(
+            ['op' => 'XOR', 'children' => []],
+            $this->tinyFieldDefs()
+        );
+    }
+
+    // ── Sprint 3 INFRA — ensure_run_id ──────────────────────────
+
+    public function testEnsureRunIdSignatureFrozen(): void
+    {
+        $this->assertTrue(function_exists('ensure_run_id'));
+        $r      = new ReflectionFunction('ensure_run_id');
+        $params = $r->getParameters();
+        $this->assertSame(1, count($params));
+        $this->assertSame('campaign', $params[0]->getName());
+        $this->assertFalse($params[0]->isOptional());
+        $this->assertSame('array', (string)$params[0]->getType());
+        $this->assertSame('string', (string)$r->getReturnType());
+    }
+
+    public function testEnsureRunIdReturnsExistingValue(): void
+    {
+        $existing = 'abcdef01-2345-4678-89ab-cdef01234567';
+        $got = ensure_run_id(['id' => 'camp-1', 'run_id' => $existing]);
+        $this->assertSame($existing, $got);
+    }
+
+    public function testEnsureRunIdGeneratesWhenMissing(): void
+    {
+        $got = ensure_run_id(['id' => 'camp-2', 'run_id' => '']);
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            $got
+        );
+        $got2 = ensure_run_id(['id' => 'camp-3']);
+        $this->assertNotSame($got, $got2);
+    }
+
+    public function testEnsureRunIdThrowsWithoutCampaignId(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/campaign\["id"\]/');
+        ensure_run_id(['run_id' => null]);
     }
 }

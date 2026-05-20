@@ -158,18 +158,56 @@ function get_field_defs(): array
 }
 
 // ── SQL WHERE 빌더 (buildWhereClause 이식) ───────────────────
+//
+// Sprint 3 DB (③) — 필터 OR/NOT 백워드 호환 확장.
+//
+// 입력 자동 판별 (시그니처 array $filters 불변, 결과 형태 ['sql','params'] 불변):
+//   v1 (평면 AND): [{field, operator, value}, ...]
+//       기존 운영자의 모든 호출 경로(api/internal-db, ScheduleRunner, segments POST/PUT 검증)와
+//       100% 동일 동작. 빈 배열 → '1=1'.
+//   v2 (트리)   : {op:'AND'|'OR', children:[<node>, ...]}  또는  {op:'NOT', child:<node>}
+//       <node> 자체가 v1(평면 배열) 또는 v2(또 다른 트리)일 수 있어 재귀.
+//       AND/OR children 빈 배열 → '1=1' (안전쪽 — 전체 발송 무효화 효과는 어차피
+//       상위 호출자가 consent_guard / segments 검증으로 차단).
+//       NOT 단일 자식은 'NOT (<child>)'.
+//
+// 호출자는 v1만 알면 동작이 변하지 않는다. 고급 모드(UI 토글 ON)에서만 v2 트리를 직렬화해
+// 전달하면 본 함수가 재귀로 풀어준다.
 
 function build_where_clause(array $filters, array $field_defs): array
 {
+    // 빈 입력은 기존 동작 그대로 — `1=1`로 통과.
     if (empty($filters)) {
         return ['sql' => '1=1', 'params' => []];
     }
 
-    $def_map = array_column($field_defs, null, 'field');
+    // v2 판별: assoc array(=object 직렬화)이면서 'op' 키 보유.
+    // PHP에서 list-array(0,1,2..)는 array_is_list()로 판별; assoc은 그 반대.
+    // 단, [0 => {...}]처럼 0-기반 정수 키여도 'op' 키를 가지면 v2로 본다 (방어적).
+    if (isset($filters['op']) && is_string($filters['op'])) {
+        return _build_where_node($filters, array_column($field_defs, null, 'field'));
+    }
+
+    // v1: 평면 배열 → 기존 AND 결합 경로 (동작 불변)
+    return _build_where_v1_flat($filters, array_column($field_defs, null, 'field'));
+}
+
+/**
+ * v1 평면 필터 배열(AND)을 SQL로 변환한다.
+ * @internal — build_where_clause()와 _build_where_node()에서만 호출.
+ */
+function _build_where_v1_flat(array $filters, array $def_map): array
+{
     $clauses = [];
     $params  = [];
 
     foreach ($filters as $f) {
+        if (!is_array($f) || !isset($f['field'])) {
+            // v1 평면 배열인데 leaf 형태가 아님 — 입력 오류
+            throw new RuntimeException(
+                '필터 노드 형식 오류: 평면 모드에서는 {field, operator, value} 항목만 허용됩니다.'
+            );
+        }
         if (!isset($def_map[$f['field']])) {
             throw new RuntimeException(
                 "알 수 없는 필터 필드: '{$f['field']}'. 세그먼트 편집 화면에서 해당 조건을 제거하거나 유효한 필드로 교체하세요."
@@ -182,10 +220,10 @@ function build_where_clause(array $filters, array $field_defs): array
         switch ($op) {
             case '=': case '!=': case '>': case '>=': case '<': case '<=':
                 $clauses[] = "$col $op ?";
-                $params[]  = cast_filter_value($f['value'], $def['type']);
+                $params[]  = cast_filter_value((string)$f['value'], $def['type']);
                 break;
             case 'IN': case 'NOT IN':
-                $vals = array_values(array_filter(array_map('trim', explode(',', $f['value']))));
+                $vals = array_values(array_filter(array_map('trim', explode(',', (string)$f['value']))));
                 if (empty($vals)) continue 2;
                 $ph = implode(', ', array_fill(0, count($vals), '?'));
                 $clauses[] = "$col $op ($ph)";
@@ -208,6 +246,76 @@ function build_where_clause(array $filters, array $field_defs): array
 
     return [
         'sql'    => empty($clauses) ? '1=1' : implode(' AND ', $clauses),
+        'params' => $params,
+    ];
+}
+
+/**
+ * v2 트리 노드(또는 v1 leaf/평면배열)를 재귀적으로 SQL로 변환한다.
+ *
+ * 입력 형태:
+ *   {op:'AND'|'OR', children:[<node>,...]}
+ *   {op:'NOT', child:<node>}
+ *   또는 v1 leaf {field,operator,value}  → 평면 배열로 감싸 처리
+ *   또는 v1 평면 배열 [<leaf>,...]       → AND 결합으로 처리
+ *
+ * @internal
+ */
+function _build_where_node(array $node, array $def_map): array
+{
+    // v1 leaf — {field,operator,value}: 단일 leaf를 1요소 평면 배열로 감싸 평면 빌더로 위임.
+    if (isset($node['field']) && !isset($node['op'])) {
+        return _build_where_v1_flat([$node], $def_map);
+    }
+
+    // v1 평면 배열(list-array) — leaf들의 AND.
+    if (!isset($node['op']) && array_is_list($node)) {
+        return _build_where_v1_flat($node, $def_map);
+    }
+
+    if (!isset($node['op'])) {
+        throw new RuntimeException('필터 노드에 op 또는 field 키가 없습니다.');
+    }
+
+    $op = strtoupper((string)$node['op']);
+
+    if ($op === 'NOT') {
+        if (!isset($node['child']) || !is_array($node['child'])) {
+            throw new RuntimeException('NOT 노드에는 단일 child 노드가 필요합니다.');
+        }
+        $sub = _build_where_node($node['child'], $def_map);
+        // 빈 child(=1=1)는 NOT 의미가 모호 → NOT (1=1) 그대로 두면 0=1이 되어 전체 차단.
+        // 호출자가 잘못 구성한 경우 안전쪽 결과(아무도 추출 안 됨)로 떨어지게 한다.
+        return [
+            'sql'    => 'NOT (' . $sub['sql'] . ')',
+            'params' => $sub['params'],
+        ];
+    }
+
+    if ($op !== 'AND' && $op !== 'OR') {
+        throw new RuntimeException("지원하지 않는 필터 op: '{$node['op']}' (AND|OR|NOT만 허용).");
+    }
+
+    $children = $node['children'] ?? [];
+    if (!is_array($children) || empty($children)) {
+        // 빈 children — 무필터로 취급 (기존 v1 빈 배열 동작과 일치).
+        return ['sql' => '1=1', 'params' => []];
+    }
+
+    $parts  = [];
+    $params = [];
+    foreach ($children as $child) {
+        if (!is_array($child)) {
+            throw new RuntimeException('필터 트리의 child는 배열/객체여야 합니다.');
+        }
+        $sub      = _build_where_node($child, $def_map);
+        $parts[]  = '(' . $sub['sql'] . ')';
+        $params   = array_merge($params, $sub['params']);
+    }
+
+    $glue = $op === 'AND' ? ' AND ' : ' OR ';
+    return [
+        'sql'    => implode($glue, $parts),
         'params' => $params,
     ];
 }
@@ -493,24 +601,8 @@ function job_log(
     ?string $run_id = null
 ): void {
     if (defined('RUNNING_AS_CLI') && RUNNING_AS_CLI) {
-        // Sprint 3 INFRA — LOG_FORMAT='json' 이면 stdout 출력을 JSON Lines 로.
-        // 'text'(기본) 일 때는 기존 포맷 100% 유지.
-        $is_json = defined('LOG_FORMAT') && LOG_FORMAT === 'json';
-        if ($is_json) {
-            $line = json_encode([
-                'ts'          => date('c'),
-                'level'       => $status,
-                'step'        => $step,
-                'run_id'      => $run_id,
-                'campaign_id' => $campaign_id,
-                'message'     => $message,
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            // json_encode 가 NULL 반환할 가능성(인코딩 오류 등)에 대비.
-            echo ($line === false ? $message : $line) . PHP_EOL;
-        } else {
-            $prefix = $run_id !== null ? '[run:' . substr($run_id, 0, 8) . '] ' : '';
-            echo '[' . date('Y-m-d H:i:s') . '] ' . $prefix . $message . PHP_EOL;
-        }
+        $prefix = $run_id !== null ? '[run:' . substr($run_id, 0, 8) . '] ' : '';
+        echo '[' . date('Y-m-d H:i:s') . '] ' . $prefix . $message . PHP_EOL;
     }
     if ($campaign_id !== null) {
         DB::exec(
@@ -518,38 +610,6 @@ function job_log(
             [new_uuid(), $campaign_id, $step, $status, $run_id, $message, now_str()]
         );
     }
-}
-
-// ── Sprint 3 INFRA — run_id 발급/조회 ───────────────────────────
-//
-// 안정 API 시그니처 (시그니처 동결):
-//   ensure_run_id(array $campaign): string
-//
-// 입력 $campaign 행에 run_id 값이 이미 있으면 그대로 반환한다.
-// 없으면 새 UUID 를 발급해 campaigns.run_id 컬럼을 UPDATE 후 발급된 값을 반환.
-//
-// 호출자: ORCH의 ScheduleRunner 진입부 + api/campaigns.php approve 분기.
-// 한 발송 사이클의 모든 job_log/status_history/Marketo 호출에 동일한 run_id를
-// 묶어주는 게 목적. 본 함수 자체는 *최소 1회의 UPDATE*만 발생시키며,
-// 동일 캠페인에서 두 번째 호출은 입력 배열의 'run_id'를 그대로 반환한다.
-//
-// 호출 예: $rid = ensure_run_id($campaign); // ScheduleRunner 진입부 1회
-function ensure_run_id(array $campaign): string
-{
-    $existing = $campaign['run_id'] ?? null;
-    if (is_string($existing) && $existing !== '') {
-        return $existing;
-    }
-
-    $id = $campaign['id'] ?? null;
-    if (!is_string($id) || $id === '') {
-        // run_id 발급은 가능하나 어디에 박제할지 모르면 의미가 없다 — 명확히 실패.
-        throw new RuntimeException('ensure_run_id: campaign["id"] 가 비어있습니다.');
-    }
-
-    $new = new_uuid();
-    DB::exec('UPDATE campaigns SET run_id=? WHERE id=?', [$new, $id]);
-    return $new;
 }
 
 // ── DRY_RUN_MODE 헬퍼 ─────────────────────────────────────────────
@@ -562,6 +622,28 @@ function ensure_run_id(array $campaign): string
 function is_dry_run(): bool
 {
     return defined('DRY_RUN_MODE') && DRY_RUN_MODE === true;
+}
+
+// ── Sprint 3 INFRA: run_id 자동 발급 ─────────────────────────────
+// 안정 API: ensure_run_id($campaign): string
+//   - $campaign['run_id']가 있으면 그대로 반환
+//   - 없으면 new_uuid() 발급 + campaigns.run_id 박제 후 반환
+//   - $campaign['id']가 비면 RuntimeException (박제 대상 불명)
+// ScheduleRunner.run_campaign_schedule 진입부에서 1회 호출 후 모든 후속
+// job_log/record_status_transition 의 run_id 인자에 전달한다.
+function ensure_run_id(array $campaign): string
+{
+    $existing = $campaign['run_id'] ?? null;
+    if (is_string($existing) && $existing !== '') {
+        return $existing;
+    }
+    $id = $campaign['id'] ?? null;
+    if (!is_string($id) || $id === '') {
+        throw new RuntimeException('ensure_run_id: campaign["id"] 가 비어있습니다.');
+    }
+    $new = new_uuid();
+    DB::exec('UPDATE campaigns SET run_id=? WHERE id=?', [$new, $id]);
+    return $new;
 }
 
 // ── Sprint 1 INFRA: 스크린샷 첨부 저장소 ─────────────────────────

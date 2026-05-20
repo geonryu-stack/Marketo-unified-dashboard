@@ -16,10 +16,20 @@ include __DIR__ . '/../layout_header.php';
     <input type="text" class="form-control" name="description">
   </div>
 
-  <h5 class="mt-4">필터 조건</h5>
+  <h5 class="mt-4 d-flex align-items-center gap-3">
+    필터 조건
+    <span class="form-check form-switch fs-6 fw-normal mb-0">
+      <input class="form-check-input" type="checkbox" id="advanced-mode-toggle">
+      <label class="form-check-label small text-muted" for="advanced-mode-toggle">
+        고급 모드 (AND/OR/NOT 그룹)
+      </label>
+    </span>
+  </h5>
   <div id="filter-rows"></div>
   <div class="d-flex gap-2 mt-2 align-items-center flex-wrap">
-    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addFilter()">+ 조건 추가</button>
+    <span id="flat-action-buttons">
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addFilter()">+ 조건 추가</button>
+    </span>
     <button type="button" class="btn btn-outline-info btn-sm" onclick="previewCount()">대상자 미리보기</button>
     <button type="button" class="btn btn-outline-info btn-sm" onclick="previewSample()">표본 보기 (10건)</button>
     <div class="form-check ms-2">
