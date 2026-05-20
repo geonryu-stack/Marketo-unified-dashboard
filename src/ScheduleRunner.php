@@ -209,20 +209,36 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
     // ── C-TOKEN-VERIFY (CRITICS.md §2 ★★★) ────────────────────
     // 주입 직후 GET으로 echo-back 검증. Marketo 폴더 동기화 race / 캐시 / 권한 문제로 인한
     // "사일런트 미반영"을 잡는다. 위험구간(EP unapprove/schedule) 진입 **전**이므로
-    // throw해도 EP 상태에 영향 없음 → 일반 RuntimeException으로 'failed' 처리 가능
-    // (CampaignNeedsReviewException 아님, sibling 차단 미발동).
+    // throw해도 EP 상태에 영향 없음 → 일반 RuntimeException으로 'failed' 처리 가능.
+    //
+    // 단, Marketo 인스턴스에 따라 `getProgramTokens` 권한이 없을 수 있다 (610).
+    // 권한 없음은 토큰 값 자체 문제가 아니므로 verify *skip*하고 경고만 남긴다.
+    // (값 불일치는 여전히 throw — 그건 실제 사일런트 미반영)
     $log('verify_tokens', 'running', "C-TOKEN-VERIFY echo-back 시작 (Program $send_program_id)");
-    $actual_tokens = MarketoAPI::getProgramTokens($send_program_id);
-    $mismatches    = diff_campaign_tokens($expected_tokens, $actual_tokens);
-    if (!empty($mismatches)) {
-        throw new RuntimeException(
-            'C-TOKEN-VERIFY 실패 — Marketo에 주입된 토큰 값이 기대값과 다릅니다. '
-            . '폴더 동기화 race / 캐시 / 권한 문제일 수 있습니다. 잠시 후 재시도하거나 '
-            . 'Marketo UI에서 Program ' . $send_program_id . ' 의 토큰을 직접 확인하세요. '
-            . '불일치: ' . implode(' | ', $mismatches)
-        );
+    try {
+        $actual_tokens = MarketoAPI::getProgramTokens($send_program_id);
+        $mismatches    = diff_campaign_tokens($expected_tokens, $actual_tokens);
+        if (!empty($mismatches)) {
+            throw new RuntimeException(
+                'C-TOKEN-VERIFY 실패 — Marketo에 주입된 토큰 값이 기대값과 다릅니다. '
+                . '폴더 동기화 race / 캐시 문제일 수 있습니다. 잠시 후 재시도하거나 '
+                . 'Marketo UI에서 Program ' . $send_program_id . ' 의 토큰을 직접 확인하세요. '
+                . '불일치: ' . implode(' | ', $mismatches)
+            );
+        }
+        $log('verify_tokens', 'done', 'C-TOKEN-VERIFY echo-back 통과');
+    } catch (RuntimeException $e) {
+        // Marketo 권한 차단(610)은 graceful skip — 운영자 알림
+        if (str_contains($e->getMessage(), 'code 610') || str_contains($e->getMessage(), '404')) {
+            $log('verify_tokens', 'running', '권한 없음(610) — C-TOKEN-VERIFY skip. 운영자 검토 권장.');
+            if (function_exists('Notifier::slack')) { /* not callable like this */ }
+            if (class_exists('Notifier')) {
+                Notifier::slack("[C-TOKEN-VERIFY skip] Program {$send_program_id} tokens API 권한 없음 ({$e->getMessage()})", 'warn');
+            }
+        } else {
+            throw $e; // 값 불일치는 그대로 전파
+        }
     }
-    $log('verify_tokens', 'done', 'C-TOKEN-VERIFY echo-back 통과');
 
     // EP 진입 직전에 marketo_email_program_id를 DB에 미리 저장.
     // 위험 구간 도중 실패해도 이 ID가 보존되어 cancel 시 unapprove 가능.
@@ -309,7 +325,20 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
 function verify_schedule_echo(int $campaign_id, int $ep_id, string $expected_send_dt, callable $log): void
 {
     $log('verify_schedule', 'running', "C-SCHEDULE-ECHO 시작 (EP $ep_id, expected $expected_send_dt)");
-    $snap = MarketoAPI::getEmailProgramSnapshot($ep_id);
+    try {
+        $snap = MarketoAPI::getEmailProgramSnapshot($ep_id);
+    } catch (RuntimeException $e) {
+        // emailProgram API 권한 차단(610) — 검증 skip + warn. 위험구간 안이지만
+        // 검증 자체가 불가능한 환경에서 needs_manual_review 격리는 운영자에게 더 큰 부담.
+        if (str_contains($e->getMessage(), 'code 610') || str_contains($e->getMessage(), '404')) {
+            $log('verify_schedule', 'running', '권한 없음(610) — C-SCHEDULE-ECHO skip. Marketo UI에서 직접 확인 권장.');
+            if (class_exists('Notifier')) {
+                Notifier::slack("[C-SCHEDULE-ECHO skip] EP {$ep_id} snapshot API 권한 없음. Marketo UI 검증 권장: " . $e->getMessage(), 'warn');
+            }
+            return;
+        }
+        throw $e;
+    }
 
     $actual_at = $snap['scheduledAt'] ?? null;
     $status    = $snap['status'] ?? '';

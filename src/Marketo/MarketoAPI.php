@@ -75,6 +75,16 @@ class MarketoAPI
         $is_safe_method = strtoupper($method) === 'GET';
         $max_attempts   = count(self::RETRY_DELAYS);
 
+        // DRY_RUN_MODE — POST/DELETE 차단. GET 은 조회만이라 정상 호출.
+        // HARNESS.md §E2 킬스위치. STRATEGY S0 INFRA가 도입한 is_dry_run() 헬퍼 가드.
+        if (!$is_safe_method && function_exists('is_dry_run') && is_dry_run()) {
+            if (function_exists('job_log')) {
+                $body_preview = is_string($body) ? substr($body, 0, 120) : (is_array($body) ? json_encode(array_slice($body, 0, 2)) : '');
+                job_log("[DRY_RUN] {$method} {$url} body=" . $body_preview, null, 'marketo_api', 'info');
+            }
+            return ['success' => true, 'result' => [['status' => 'dry_run', 'id' => 0]]];
+        }
+
         for ($attempt = 0; $attempt <= $max_attempts; $attempt++) {
             try {
                 $data = self::curlRaw($method, $url, $headers, $body);

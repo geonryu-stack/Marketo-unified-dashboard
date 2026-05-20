@@ -31,6 +31,15 @@ class MarketoBulkImport
         $url  = MARKETO_REST_URL . '/bulk/v1/leads.json'
               . '?format=csv&lookupField=email&listId=' . $listId;
 
+        // DRY_RUN_MODE 가드 (HARNESS §E2). 가짜 batchId 반환 → cron 폴링이 미존재 batchId로 fail 처리.
+        if (function_exists('is_dry_run') && is_dry_run()) {
+            $fake = 'dry-run-' . bin2hex(random_bytes(8));
+            if (function_exists('job_log')) {
+                job_log("[DRY_RUN] Bulk submit listId={$listId} leads=" . count($leads) . " → fake batchId={$fake}", null, 'bulk_import', 'info');
+            }
+            return $fake;
+        }
+
         // POST = 부작용 있음. 재시도는 SAFE_RETRY_CODES(606/615)와 토큰 만료(602)만.
         // 5xx/네트워크 오류는 즉시 throw하여 중복 잡 생성 방지.
         $token          = MarketoAPI::getAccessToken();

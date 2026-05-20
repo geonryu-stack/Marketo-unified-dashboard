@@ -516,4 +516,26 @@ final class HelpersTest extends TestCase
         $this->expectExceptionMessageMatches('/campaign\["id"\]/');
         ensure_run_id(['run_id' => null]);
     }
+
+    // ── DRY_RUN_MODE 가드 코드 존재 검증 (정적 grep) ─────────────
+    // Marketo POST/DELETE 경로에 is_dry_run() 가드가 *실제로 코드에 있는지* 확인.
+    // 운영자가 DRY_RUN_MODE=true로 설정해도 가드가 없으면 무의미.
+
+    public function testDryRunGuardExistsInMarketoApiCurl(): void
+    {
+        $src = file_get_contents(__DIR__ . '/../../src/Marketo/MarketoAPI.php');
+        $this->assertStringContainsString('is_dry_run()', $src,
+            'MarketoAPI::curl 안에 is_dry_run() 가드가 있어야 함 (HARNESS §E2)');
+        $this->assertStringContainsString("'dry_run'", $src,
+            'dry-run 차단시 fake 응답 marker가 있어야 함');
+    }
+
+    public function testDryRunGuardExistsInBulkImport(): void
+    {
+        $src = file_get_contents(__DIR__ . '/../../src/Marketo/MarketoBulkImport.php');
+        $this->assertStringContainsString('is_dry_run()', $src,
+            'submitBulkImport 안에 is_dry_run() 가드가 있어야 함');
+        $this->assertStringContainsString('dry-run-', $src,
+            'dry-run 시 fake batchId prefix가 있어야 함');
+    }
 }
