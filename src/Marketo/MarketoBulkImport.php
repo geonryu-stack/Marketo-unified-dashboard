@@ -180,6 +180,103 @@ class MarketoBulkImport
     }
 
     /**
+     * Bulk Import 진행률 계산 (순수 함수, 외부 호출 없음).
+     *
+     * Sprint 3 MKT ⑭ — getBulkImportStatus() 응답을 받아 진행률·ETA·rows/sec 산출.
+     * 폴링 cron(check_bulk_imports.php)에서 UI 노출용 메타데이터 적재 시 사용.
+     *
+     * Marketo `getBulkImportStatus` 응답 키는 인스턴스/시점에 따라 다를 수 있어
+     * 다음 키 순서로 fallback 한다 (없으면 0):
+     *   - processed: numOfRowsProcessed → numOfRowsCompleted
+     *   - total:     numOfRowsTotal     → numOfRows
+     *   - failed:    numOfRowsFailed
+     *
+     * @param array       $status_response getBulkImportStatus() 의 raw 반환값
+     *                                     (status, numOfRowsProcessed, ...)
+     * @param string|null $started_at      campaigns.bulk_started_at (DB datetime 문자열)
+     *                                     null이면 elapsed_sec / rows_per_sec / eta_sec 산출 불가
+     * @return array{
+     *   status: string,
+     *   processed: int,
+     *   total: int,
+     *   failed: int,
+     *   progress_pct: float,
+     *   rows_per_sec: float|null,
+     *   eta_sec: int|null,
+     *   elapsed_sec: int|null
+     * }
+     */
+    public static function computeProgress(array $status_response, ?string $started_at = null): array
+    {
+        $status = (string)($status_response['status'] ?? 'Unknown');
+
+        // processed / total / failed — 키 fallback
+        $processed = (int)(
+            $status_response['numOfRowsProcessed']
+            ?? $status_response['numOfRowsCompleted']
+            ?? 0
+        );
+        $total = (int)(
+            $status_response['numOfRowsTotal']
+            ?? $status_response['numOfRows']
+            ?? 0
+        );
+        $failed = (int)($status_response['numOfRowsFailed'] ?? 0);
+
+        // progress_pct — total=0이면 0 (Marketo가 total 안 주는 케이스)
+        // Complete 상태인데 total=0이면 100으로 끌어올리지 않는다 (입력 데이터만으로 단정 불가)
+        $progress_pct = 0.0;
+        if ($total > 0) {
+            $progress_pct = ($processed / $total) * 100.0;
+            // clamp [0, 100] — Marketo가 processed > total 보내는 엣지 케이스 방어
+            if ($progress_pct > 100.0) {
+                $progress_pct = 100.0;
+            } elseif ($progress_pct < 0.0) {
+                $progress_pct = 0.0;
+            }
+        }
+
+        // elapsed_sec / rows_per_sec / eta_sec — started_at 가용 시에만
+        $elapsed_sec  = null;
+        $rows_per_sec = null;
+        $eta_sec      = null;
+
+        if ($started_at !== null && $started_at !== '') {
+            $start_ts = strtotime($started_at);
+            if ($start_ts !== false) {
+                $elapsed_sec = max(0, time() - $start_ts);
+
+                // rows_per_sec — elapsed > 0 이고 processed > 0 일 때만
+                // (방금 시작해서 elapsed=0 또는 processed=0이면 의미 없는 값/Infinity 방지)
+                if ($elapsed_sec > 0 && $processed > 0) {
+                    $rows_per_sec = $processed / $elapsed_sec;
+
+                    // eta_sec — total 알고 있고 아직 남은 rows가 있을 때
+                    if ($total > 0 && $processed < $total && $rows_per_sec > 0.0) {
+                        $remaining = $total - $processed;
+                        $eta_sec   = (int)ceil($remaining / $rows_per_sec);
+                    } elseif ($total > 0 && $processed >= $total) {
+                        // 완료 직전/완료 — 남은 시간 0
+                        $eta_sec = 0;
+                    }
+                    // total=0 이면 eta 산출 불가 → null 유지
+                }
+            }
+        }
+
+        return [
+            'status'       => $status,
+            'processed'    => $processed,
+            'total'        => $total,
+            'failed'       => $failed,
+            'progress_pct' => $progress_pct,
+            'rows_per_sec' => $rows_per_sec,
+            'eta_sec'      => $eta_sec,
+            'elapsed_sec'  => $elapsed_sec,
+        ];
+    }
+
+    /**
      * leads 배열 → CSV 문자열.
      * 헤더: email,country (country 필드 누락 시 빈 칸).
      */
