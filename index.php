@@ -87,6 +87,17 @@ $router->add('GET', '/api/health', function ($p) {
     require_once __DIR__ . '/api/health.php';
 });
 
+// Post-S3 운영자 피드백 #2 — 발송 그룹 프리셋
+$router->add('GET', '/api/groups', function ($p) {
+    require_once __DIR__ . '/api/groups.php';
+});
+
+// Post-S3 운영자 피드백 #3 — 직전 회차 토큰 복사
+$router->add('GET', '/api/segments/{id}/latest-tokens', function ($p) {
+    $GLOBALS['route_params'] = $p;
+    require_once __DIR__ . '/api/segment-latest-tokens.php';
+});
+
 // ── Sprint 3 INFRA — 신규 라우트 등록 ─────────────────────────
 // INFRA는 라우팅만 담당. 핸들러 파일(api/content-presets.php, api/calendar.php,
 // pages/calendar/index.php)은 ASSET/ORCH 트랙이 만든다. 파일이 없을 때 라우트가

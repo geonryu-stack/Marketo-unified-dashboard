@@ -41,18 +41,29 @@ include __DIR__ . '/../layout_header.php';
   <div id="preview-sample"></div>
 
   <h5 class="mt-4">Marketo 연결</h5>
+  <div class="row g-3 mb-2">
+    <div class="col-md-6">
+      <label class="form-label">발송 그룹 프리셋 <small class="text-muted fw-normal">(선택 시 아래 3개 ID 자동 채움)</small></label>
+      <div class="d-flex gap-2">
+        <select class="form-select" id="group-preset">
+          <option value="">— 직접 입력 —</option>
+        </select>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="group-preset-clear">초기화</button>
+      </div>
+    </div>
+  </div>
   <div class="row g-3 mb-3">
     <div class="col-md-4">
       <label class="form-label">Program ID</label>
-      <input type="text" class="form-control" name="marketo_program_id">
+      <input type="text" class="form-control" name="marketo_program_id" id="m-program-id">
     </div>
     <div class="col-md-4">
       <label class="form-label">Audience List ID</label>
-      <input type="text" class="form-control" name="marketo_audience_list_id">
+      <input type="text" class="form-control" name="marketo_audience_list_id" id="m-list-id">
     </div>
     <div class="col-md-4">
       <label class="form-label">Email Program ID</label>
-      <input type="text" class="form-control" name="marketo_email_program_id">
+      <input type="text" class="form-control" name="marketo_email_program_id" id="m-ep-id">
     </div>
   </div>
 

@@ -21,6 +21,7 @@
 | 8 | `migrations/status_history.sql` | 2026-05-20 | Sprint 1 INFRA — `status_history` 테이블 신설(상태 전이 감사 로그, 알림·KPI 근거) |
 | 9 | `migrations/screenshot.sql` | 2026-05-20 | Sprint 1 ASSET — `campaigns.test_screenshot_path`, 결재 카드 테스트 메일 스크린샷 첨부 슬롯 |
 | 10 | `migrations/content_presets.sql` | 2026-05-20 | Sprint 2 ASSET — `content_presets` 테이블 (v1은 JS 상수, v2 endpoint 도입 시 백엔드 저장소) |
+| 11 | `migrations/groups_marketo_ids.sql` | 2026-05-20 | Post-S3 운영자 피드백 #2 — `groups.marketo_program_id` + `groups.marketo_email_program_id` + 4그룹 program_id 시드 |
 
 > 일자는 기존 commit history 기준. 신규 환경에서는 `schema.sql` 1회만 실행하면 모든 migration을 반영한 상태가 된다.
 

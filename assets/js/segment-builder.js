@@ -439,3 +439,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // (DOMContentLoaded가 이미 지난 환경 대비) 즉시 1회 렌더링
 renderAll();
+
+// ── 발송 그룹 프리셋 (Post-S3 #2) ───────────────────────────────
+// GET /api/groups → 드롭다운 채움. 선택 시 3개 input 자동 채움.
+async function _loadGroupPresets() {
+  const sel = document.getElementById('group-preset');
+  if (!sel) return;
+  try {
+    const res = await fetch(APP_URL + '/api/groups');
+    const data = await res.json();
+    if (!data.success) return;
+    const groups = (data.data && data.data.groups) || [];
+    groups.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.name + ' (Program ' + (g.marketo_program_id || '?') + ')';
+      opt.dataset.programId       = g.marketo_program_id ?? '';
+      opt.dataset.listId          = g.marketo_list_id ?? '';
+      opt.dataset.emailProgramId  = g.marketo_email_program_id ?? '';
+      sel.appendChild(opt);
+    });
+    // 현재 input 값과 일치하는 그룹이 있으면 자동 선택
+    const cur = {
+      p: document.getElementById('m-program-id')?.value || '',
+      l: document.getElementById('m-list-id')?.value || '',
+      e: document.getElementById('m-ep-id')?.value || '',
+    };
+    for (const o of sel.options) {
+      if (o.dataset.programId == cur.p && o.dataset.listId == cur.l) {
+        sel.value = o.value; break;
+      }
+    }
+  } catch (e) { /* 그룹 API 실패는 silently — 직접 입력은 그대로 가능 */ }
+}
+
+function _applyGroupPreset(opt) {
+  if (!opt) return;
+  const p = document.getElementById('m-program-id');
+  const l = document.getElementById('m-list-id');
+  const e = document.getElementById('m-ep-id');
+  if (p && opt.dataset.programId)      p.value = opt.dataset.programId;
+  if (l && opt.dataset.listId)         l.value = opt.dataset.listId;
+  // email_program_id는 그룹에 없을 수 있음(NULL) — 비어있을 때만 자동 채움
+  if (e && opt.dataset.emailProgramId && !e.value) e.value = opt.dataset.emailProgramId;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  _loadGroupPresets();
+  const sel = document.getElementById('group-preset');
+  if (sel) {
+    sel.addEventListener('change', () => _applyGroupPreset(sel.options[sel.selectedIndex]));
+  }
+  const clearBtn = document.getElementById('group-preset-clear');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      ['m-program-id','m-list-id','m-ep-id'].forEach(id => { const el = document.getElementById(id); if (el) el.value=''; });
+      if (sel) sel.value = '';
+    });
+  }
+});

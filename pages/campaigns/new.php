@@ -30,7 +30,7 @@ include __DIR__ . '/../layout_header.php';
 
       <div class="mb-3">
         <label class="form-label">세그먼트 *</label>
-        <select class="form-select" name="segment_id" required>
+        <select class="form-select" name="segment_id" id="segment-select" required>
           <option value="">선택하세요</option>
           <?php foreach ($segments as $s): ?>
             <option value="<?= $s['id'] ?>"
@@ -39,6 +39,7 @@ include __DIR__ . '/../layout_header.php';
             </option>
           <?php endforeach; ?>
         </select>
+        <div class="form-text" id="latest-tokens-hint" style="display:none;"></div>
       </div>
 
       <div class="mb-3">

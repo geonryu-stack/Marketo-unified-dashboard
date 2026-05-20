@@ -380,46 +380,46 @@ function initLengthGuides() {
  */
 const CONTENT_PRESETS = [
   {
-    label:     '🎁 기본 보상 안내',
+    label:     '🎁 Reward Notice',
     emoji:     '🎁',
-    title:     '보상이 도착했어요',
-    preheader: '오늘만 확인 가능한 혜택을 지금 받아가세요.',
+    title:     'Your reward has arrived',
+    preheader: 'A limited-time benefit is waiting for you today.',
   },
   {
-    label:     '⏰ 만료 임박 리마인더',
+    label:     '⏰ Expiration Reminder',
     emoji:     '⏰',
-    title:     '오늘 자정에 사라져요',
-    preheader: '아직 확인하지 않은 보상이 있어요. 놓치지 마세요.',
+    title:     "Don't miss out — expires at midnight",
+    preheader: "You still have an unclaimed reward. Don't let it slip away.",
   },
   {
-    label:     '🔥 한정 이벤트',
+    label:     '🔥 Flash Event',
     emoji:     '🔥',
-    title:     '단 24시간, 특별 이벤트',
-    preheader: '이번 주말까지만 진행하는 한정 보상 안내입니다.',
+    title:     '24 hours only — special event',
+    preheader: 'A weekend-exclusive reward is live right now.',
   },
   {
-    label:     '✨ 신규 캠페인 시작',
+    label:     '✨ New Campaign Launch',
     emoji:     '✨',
-    title:     '새로운 캠페인이 시작됐어요',
-    preheader: '회원님께 어울리는 새로운 혜택을 준비했습니다.',
+    title:     'A new campaign has started',
+    preheader: "We've prepared a fresh benefit tailored just for you.",
   },
   {
-    label:     '💌 위클리 리포트',
+    label:     '💌 Weekly Digest',
     emoji:     '💌',
-    title:     '이번 주의 활동 요약',
-    preheader: '지난 한 주 동안의 활동과 다음 보상을 한눈에 확인하세요.',
+    title:     'Your week in review',
+    preheader: 'See your activity from the past week and your next reward at a glance.',
   },
   {
-    label:     '🎯 맞춤 추천',
+    label:     '🎯 Personalized Pick',
     emoji:     '🎯',
-    title:     '회원님께 딱 맞는 보상',
-    preheader: '회원님의 활동을 분석해 추천드리는 맞춤 혜택이에요.',
+    title:     'A reward picked just for you',
+    preheader: 'Based on your recent activity — a recommendation made for you.',
   },
   {
-    label:     '🎉 축하 메시지',
+    label:     '🎉 Celebration',
     emoji:     '🎉',
-    title:     '축하해요! 새 보상이 열렸어요',
-    preheader: '회원님께만 드리는 특별한 축하 보상을 확인하세요.',
+    title:     "Congrats! A new reward is unlocked",
+    preheader: 'A special celebration reward, just for you.',
   },
   {
     label:     '🚀 빠른 액션 유도',
@@ -1110,5 +1110,55 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (document.getElementById('cohort-trend')) {
     loadCohortTrend();
+  }
+});
+
+// ── 직전 회차 토큰 자동 채움 (Post-S3 #3) ────────────────────────
+// 새 캠페인 페이지: 세그먼트 선택 시 직전 sent 회차의 4개 토큰을 자동 채움
+// (input이 비어있을 때만 — 운영자가 입력한 값을 덮어쓰지 않음).
+async function loadLatestTokensForSegment(segmentId) {
+  const hint = document.getElementById('latest-tokens-hint');
+  if (!segmentId) {
+    if (hint) hint.style.display = 'none';
+    return;
+  }
+  try {
+    const res = await fetch(`${APP_URL}/api/segments/${encodeURIComponent(segmentId)}/latest-tokens`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const latest = (data.data && data.data.latest) || null;
+    if (!latest) {
+      if (hint) { hint.style.display = ''; hint.textContent = '이 세그먼트의 첫 회차입니다 — 토큰을 처음부터 입력하세요.'; }
+      return;
+    }
+    const fields = [
+      { id: ['emoji', 'name=emoji'],            value: latest.emoji },
+      { id: ['email-title', 'name=email_title'], value: latest.title },
+      { id: ['email-preheader', 'name=email_preheader'], value: latest.preheader },
+      { id: ['reward-url', 'name=reward_url'],   value: latest.reward_url },
+    ];
+    let filled = 0;
+    fields.forEach(f => {
+      // input 선택자(여러 후보)에서 첫 element 찾기
+      let el = null;
+      for (const sel of f.id) {
+        el = document.getElementById(sel) || document.querySelector(`[${sel}]`);
+        if (el) break;
+      }
+      if (el && !el.value && f.value) { el.value = f.value; el.dispatchEvent(new Event('input')); filled++; }
+    });
+    if (hint && filled > 0) {
+      hint.style.display = '';
+      hint.innerHTML = `<span class="text-success">✓ 직전 회차 <strong>${_esc(latest.campaign_name)}</strong> (${_esc((latest.send_time||'').substring(0,10))})의 토큰 ${filled}개를 가져왔습니다. 확인 후 수정하세요.</span>`;
+    }
+  } catch (e) { /* silently */ }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const segSel = document.getElementById('segment-select');
+  if (segSel) {
+    segSel.addEventListener('change', () => loadLatestTokensForSegment(segSel.value));
+    // 페이지 로드 시 이미 선택된 segment(예: clone에서) 있으면 호출
+    if (segSel.value) loadLatestTokensForSegment(segSel.value);
   }
 });

@@ -102,8 +102,10 @@ CREATE TABLE IF NOT EXISTS `status_history` (
 CREATE TABLE IF NOT EXISTS `groups` (
   `id` VARCHAR(36) NOT NULL,
   `name` VARCHAR(255) NOT NULL,
+  `marketo_program_id` INT DEFAULT NULL,
   `marketo_campaign_id` INT NOT NULL,
   `marketo_list_id` INT NOT NULL,
+  `marketo_email_program_id` INT DEFAULT NULL,
   `sort_order` INT NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -126,11 +128,12 @@ CREATE TABLE IF NOT EXISTS `send_schedules` (
   UNIQUE KEY `uq_group_date` (`group_id`, `send_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT IGNORE INTO `groups` (`id`, `name`, `marketo_campaign_id`, `marketo_list_id`, `sort_order`) VALUES
-('active-a',  'Active A',  7610, 8293, 0),
-('active-b',  'Active B',  7611, 8294, 1),
-('fp-active', 'FP Active', 7613, 8296, 2),
-('np-active', 'NP Active', 7612, 8295, 3);
+INSERT IGNORE INTO `groups` (`id`, `name`, `marketo_program_id`, `marketo_campaign_id`, `marketo_list_id`, `sort_order`) VALUES
+('active-a',  'Active A',  7309, 7610, 8293, 0),
+('active-b',  'Active B',  7310, 7611, 8294, 1),
+('fp-active', 'FP Active', 7312, 7613, 8296, 2),
+('np-active', 'NP Active', 7311, 7612, 8295, 3);
+-- marketo_email_program_id는 운영자가 첫 사용 시 UPDATE
 
 -- Sprint 2 ASSET — 콘텐츠 프리셋 저장 (v1은 JS 상수, v2에서 endpoint 도입 예정)
 CREATE TABLE IF NOT EXISTS `content_presets` (
