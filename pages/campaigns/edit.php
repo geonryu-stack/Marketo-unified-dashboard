@@ -20,6 +20,7 @@ $default_send = strlen($raw_st) > 5
     ? date('Y-m-d\TH:i', strtotime($raw_st))
     : (date('Y-m-d', strtotime('+1 day')) . 'T' . ($raw_st ?: '10:00'));
 
+$scripts = ['campaign.js'];
 include __DIR__ . '/../layout_header.php';
 ?>
 <div class="d-flex align-items-center gap-3 mb-3">
@@ -28,80 +29,93 @@ include __DIR__ . '/../layout_header.php';
 </div>
 <p class="text-muted">저장하면 테스트 메일이 다시 발송됩니다.</p>
 
-<form id="edit-form" style="max-width:640px">
+<div class="row g-4">
+  <div class="col-md-6">
+    <form id="edit-form">
 
-  <div class="mb-3">
-    <label class="form-label">캠페인 이름 *</label>
-    <input type="text" class="form-control" name="name" required
-           value="<?= htmlspecialchars($c['name']) ?>">
+      <div class="mb-3">
+        <label class="form-label">캠페인 이름 *</label>
+        <input type="text" class="form-control" name="name" required
+               value="<?= htmlspecialchars($c['name']) ?>">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">세그먼트 *</label>
+        <select class="form-select" name="segment_id" required>
+          <option value="">선택하세요</option>
+          <?php foreach ($segments as $s): ?>
+            <option value="<?= $s['id'] ?>" <?= $c['segment_id'] === $s['id'] ? 'selected' : '' ?>>
+              <?= htmlspecialchars($s['name']) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">이메일 에셋 *
+          <span class="text-muted fw-normal small">(Library Program ID: <?= $email_lib_program_id ?>)</span>
+        </label>
+        <select class="form-select" name="marketo_cloned_email_id" id="email-asset-select" required>
+          <option value="">로딩 중...</option>
+        </select>
+        <div class="form-text" id="email-asset-count"></div>
+        <input type="hidden" name="asset_name" id="asset-name-input"
+               value="<?= htmlspecialchars($c['asset_name'] ?? '') ?>">
+      </div>
+
+      <hr class="my-4">
+      <h5 class="mb-3">이메일 컨텐츠 <small class="text-muted fw-normal">— Marketo My Token으로 주입됩니다</small></h5>
+
+      <div class="mb-3">
+        <label class="form-label">콘텐츠 프리셋 <small class="text-muted fw-normal">(선택 시 이모지·제목·프리헤더 일괄 채움)</small></label>
+        <select class="form-select" name="content_preset"></select>
+      </div>
+
+      <div class="row g-2 mb-3">
+        <div class="col-auto">
+          <label class="form-label">이모지 <code class="small">{{my.Emoji}}</code></label>
+          <input type="text" class="form-control" name="emoji" style="width:90px"
+                 value="<?= htmlspecialchars($c['emoji'] ?? '') ?>" placeholder="🎁">
+        </div>
+        <div class="col">
+          <label class="form-label">이메일 제목 <code class="small">{{my.Title}}</code></label>
+          <input type="text" class="form-control" name="email_title"
+                 value="<?= htmlspecialchars($c['email_title'] ?? '') ?>"
+                 placeholder="이메일 제목을 입력하세요">
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">프리헤더 <code class="small">{{my.Preheader}}</code></label>
+        <input type="text" class="form-control" name="email_preheader"
+               value="<?= htmlspecialchars($c['email_preheader'] ?? '') ?>"
+               placeholder="수신함에서 미리 보이는 짧은 텍스트">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">보상 URL <code class="small">{{my.RewardUrl}}</code></label>
+        <input type="url" class="form-control" name="reward_url"
+               value="<?= htmlspecialchars($c['reward_url'] ?? '') ?>"
+               placeholder="https://...">
+      </div>
+
+      <hr class="my-4">
+
+      <div class="mb-3" style="max-width:320px">
+        <label class="form-label">이메일 발송 일시 * <span class="text-muted fw-normal small">(수신자 현지시간)</span></label>
+        <input type="datetime-local" class="form-control" name="send_time" required
+               value="<?= $default_send ?>"
+               min="<?= date('Y-m-d\TH:i', strtotime('+17 hours')) ?>">
+        <div class="form-text">대상자 추출은 발송 16시간 전에 자동 실행됩니다. (최소 17시간 이후 선택)</div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="submit-btn">저장 및 테스트 메일 재발송</button>
+      <a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>" class="btn btn-outline-secondary ms-2">취소</a>
+    </form>
   </div>
 
-  <div class="mb-3">
-    <label class="form-label">세그먼트 *</label>
-    <select class="form-select" name="segment_id" required>
-      <option value="">선택하세요</option>
-      <?php foreach ($segments as $s): ?>
-        <option value="<?= $s['id'] ?>" <?= $c['segment_id'] === $s['id'] ? 'selected' : '' ?>>
-          <?= htmlspecialchars($s['name']) ?>
-        </option>
-      <?php endforeach; ?>
-    </select>
+  <div class="col-md-6">
+    <div id="inbox-preview" class="sticky-top" style="top:1rem;"></div>
   </div>
-
-  <div class="mb-3">
-    <label class="form-label">이메일 에셋 *
-      <span class="text-muted fw-normal small">(Library Program ID: <?= $email_lib_program_id ?>)</span>
-    </label>
-    <select class="form-select" name="marketo_cloned_email_id" id="email-asset-select" required>
-      <option value="">로딩 중...</option>
-    </select>
-    <div class="form-text" id="email-asset-count"></div>
-    <input type="hidden" name="asset_name" id="asset-name-input"
-           value="<?= htmlspecialchars($c['asset_name'] ?? '') ?>">
-  </div>
-
-  <hr class="my-4">
-  <h5 class="mb-3">이메일 컨텐츠 <small class="text-muted fw-normal">— Marketo My Token으로 주입됩니다</small></h5>
-
-  <div class="row g-2 mb-3">
-    <div class="col-auto">
-      <label class="form-label">이모지 <code class="small">{{my.Emoji}}</code></label>
-      <input type="text" class="form-control" name="emoji" style="width:90px"
-             value="<?= htmlspecialchars($c['emoji'] ?? '') ?>" placeholder="🎁">
-    </div>
-    <div class="col">
-      <label class="form-label">이메일 제목 <code class="small">{{my.Title}}</code></label>
-      <input type="text" class="form-control" name="email_title"
-             value="<?= htmlspecialchars($c['email_title'] ?? '') ?>"
-             placeholder="이메일 제목을 입력하세요">
-    </div>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">프리헤더 <code class="small">{{my.Preheader}}</code></label>
-    <input type="text" class="form-control" name="email_preheader"
-           value="<?= htmlspecialchars($c['email_preheader'] ?? '') ?>"
-           placeholder="수신함에서 미리 보이는 짧은 텍스트">
-  </div>
-  <div class="mb-3">
-    <label class="form-label">보상 URL <code class="small">{{my.RewardUrl}}</code></label>
-    <input type="url" class="form-control" name="reward_url"
-           value="<?= htmlspecialchars($c['reward_url'] ?? '') ?>"
-           placeholder="https://...">
-  </div>
-
-  <hr class="my-4">
-
-  <div class="mb-3" style="max-width:320px">
-    <label class="form-label">이메일 발송 일시 * <span class="text-muted fw-normal small">(수신자 현지시간)</span></label>
-    <input type="datetime-local" class="form-control" name="send_time" required
-           value="<?= $default_send ?>"
-           min="<?= date('Y-m-d\TH:i', strtotime('+17 hours')) ?>">
-    <div class="form-text">대상자 추출은 발송 16시간 전에 자동 실행됩니다. (최소 17시간 이후 선택)</div>
-  </div>
-
-  <button type="submit" class="btn btn-primary" id="submit-btn">저장 및 테스트 메일 재발송</button>
-  <a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>" class="btn btn-outline-secondary ms-2">취소</a>
-</form>
+</div>
 
 <script>
 const APP_URL        = '<?= APP_URL ?>';
@@ -142,6 +156,21 @@ document.getElementById('email-asset-select').addEventListener('change', (e) => 
 });
 
 loadEmailAssets();
+
+// Sprint 2 ASSET — 라이브 인박스 미리보기 + 프리셋 드롭다운
+// campaign.js는 footer에서 로드되므로 DOMContentLoaded(혹은 이미 끝났으면 즉시) 시점에 호출.
+function _bootLivePreview() {
+  if (typeof window.initLivePreview === 'function') {
+    window.initLivePreview('#edit-form', '#inbox-preview');
+  } else {
+    setTimeout(_bootLivePreview, 50);
+  }
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bootLivePreview);
+} else {
+  _bootLivePreview();
+}
 
 document.getElementById('edit-form').addEventListener('submit', async (e) => {
   e.preventDefault();

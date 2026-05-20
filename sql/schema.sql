@@ -1,7 +1,7 @@
 -- sql/schema.sql
 -- 신규 설치 시 이 한 파일로 최신 상태 완성. 기존 환경은 sql/migrations/*.sql 순서대로 적용.
 -- 최종 업데이트: 2026-05-20 — 모든 migration 통합 (approval, bulk_import, delivery_tracking,
---                                token_fields, defaults, segment_id_index, run_id, status_history, screenshot)
+--                                token_fields, defaults, segment_id_index, run_id, status_history, screenshot, content_presets)
 CREATE DATABASE IF NOT EXISTS `marketo_automation`
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `marketo_automation`;
@@ -131,3 +131,14 @@ INSERT IGNORE INTO `groups` (`id`, `name`, `marketo_campaign_id`, `marketo_list_
 ('active-b',  'Active B',  7611, 8294, 1),
 ('fp-active', 'FP Active', 7613, 8296, 2),
 ('np-active', 'NP Active', 7612, 8295, 3);
+
+-- Sprint 2 ASSET — 콘텐츠 프리셋 저장 (v1은 JS 상수, v2에서 endpoint 도입 예정)
+CREATE TABLE IF NOT EXISTS `content_presets` (
+  `id` VARCHAR(36) NOT NULL,
+  `label` VARCHAR(255) NOT NULL,
+  `emoji` VARCHAR(20) DEFAULT NULL,
+  `title_template` VARCHAR(500) DEFAULT NULL,
+  `preheader_template` VARCHAR(500) DEFAULT NULL,
+  `created_at` VARCHAR(50) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -20,6 +20,7 @@
 | 7 | `migrations/run_id.sql` | 2026-05-20 | Sprint 0 INFRA — `campaigns.run_id` + `job_logs.run_id` (+인덱스), 발송 1회 추적 UUID |
 | 8 | `migrations/status_history.sql` | 2026-05-20 | Sprint 1 INFRA — `status_history` 테이블 신설(상태 전이 감사 로그, 알림·KPI 근거) |
 | 9 | `migrations/screenshot.sql` | 2026-05-20 | Sprint 1 ASSET — `campaigns.test_screenshot_path`, 결재 카드 테스트 메일 스크린샷 첨부 슬롯 |
+| 10 | `migrations/content_presets.sql` | 2026-05-20 | Sprint 2 ASSET — `content_presets` 테이블 (v1은 JS 상수, v2 endpoint 도입 시 백엔드 저장소) |
 
 > 일자는 기존 commit history 기준. 신규 환경에서는 `schema.sql` 1회만 실행하면 모든 migration을 반영한 상태가 된다.
 

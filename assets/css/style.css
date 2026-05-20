@@ -14,6 +14,59 @@ body { background-color: #f8f9fa; }
 .char-counter.char-warn { color: #b8860b; }
 .char-counter.char-over { color: #dc3545; font-weight: 600; }
 
+/* Sprint 2 ASSET — 라이브 인박스 미리보기 (Gmail/Outlook 흉내) */
+.inbox-preview {
+  background-color: #ffffff;
+  border: 1px solid #dadce0;
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.12),
+              0 4px 12px rgba(60, 64, 67, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               'Helvetica Neue', Arial, 'Apple SD Gothic Neo', 'Noto Sans KR',
+               sans-serif;
+  color: #202124;
+}
+.inbox-preview-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inbox-emoji-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.25rem;
+}
+.inbox-emoji-title .inbox-emoji {
+  margin-right: 0.25rem;
+}
+.inbox-preheader {
+  font-size: 0.9rem;
+  color: #5f6368;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inbox-body {
+  color: #5f6368;
+  font-style: italic;
+}
+.inbox-cta {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background-color: #1a73e8;
+  color: #ffffff;
+  border-radius: 0.25rem;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+.inbox-cta:hover { color: #ffffff; opacity: 0.92; }
+
 /* Sprint 0 ORCH — 5분 취소 윈도 카운트다운 */
 .cancel-countdown {
   background-color: #e9ecef;

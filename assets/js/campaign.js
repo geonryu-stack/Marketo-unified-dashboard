@@ -364,6 +364,168 @@ function initLengthGuides() {
   }
 }
 
+// ──────────────────────────────────────────────────────────
+// Sprint 2 ASSET — 라이브 인박스 미리보기 + 콘텐츠 프리셋
+// ──────────────────────────────────────────────────────────
+
+/**
+ * 콘텐츠 프리셋 (v1 — JS 상수). 운영자가 드롭다운으로 선택해
+ * emoji/email_title/email_preheader 3개 input에 일괄 주입.
+ * reward_url은 회차마다 다르므로 프리셋에 포함되지 않음.
+ * v2에서 content_presets 테이블 + /api/content-presets 로 이관 예정.
+ */
+const CONTENT_PRESETS = [
+  {
+    label:     '🎁 기본 보상 안내',
+    emoji:     '🎁',
+    title:     '보상이 도착했어요',
+    preheader: '오늘만 확인 가능한 혜택을 지금 받아가세요.',
+  },
+  {
+    label:     '⏰ 만료 임박 리마인더',
+    emoji:     '⏰',
+    title:     '오늘 자정에 사라져요',
+    preheader: '아직 확인하지 않은 보상이 있어요. 놓치지 마세요.',
+  },
+  {
+    label:     '🔥 한정 이벤트',
+    emoji:     '🔥',
+    title:     '단 24시간, 특별 이벤트',
+    preheader: '이번 주말까지만 진행하는 한정 보상 안내입니다.',
+  },
+  {
+    label:     '✨ 신규 캠페인 시작',
+    emoji:     '✨',
+    title:     '새로운 캠페인이 시작됐어요',
+    preheader: '회원님께 어울리는 새로운 혜택을 준비했습니다.',
+  },
+  {
+    label:     '💌 위클리 리포트',
+    emoji:     '💌',
+    title:     '이번 주의 활동 요약',
+    preheader: '지난 한 주 동안의 활동과 다음 보상을 한눈에 확인하세요.',
+  },
+  {
+    label:     '🎯 맞춤 추천',
+    emoji:     '🎯',
+    title:     '회원님께 딱 맞는 보상',
+    preheader: '회원님의 활동을 분석해 추천드리는 맞춤 혜택이에요.',
+  },
+  {
+    label:     '🎉 축하 메시지',
+    emoji:     '🎉',
+    title:     '축하해요! 새 보상이 열렸어요',
+    preheader: '회원님께만 드리는 특별한 축하 보상을 확인하세요.',
+  },
+  {
+    label:     '🚀 빠른 액션 유도',
+    emoji:     '🚀',
+    title:     '지금 바로 시작해 보세요',
+    preheader: '한 번의 클릭으로 보상을 받을 수 있어요.',
+  },
+];
+
+/** HTML 이스케이프 (미리보기에서 사용자 입력 그대로 노출하지 않도록). */
+function _escHtml(s) {
+  if (s === undefined || s === null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * 인박스 미리보기 1회 렌더.
+ * - mime_header_value의 base64 인코딩은 흉내 안 함 (UTF-8 그대로 노출).
+ * - 본문은 placeholder + reward_url 버튼만 노출 (실제 본문은 Marketo 에셋이 결정).
+ */
+function _renderInboxPreview(container, fields) {
+  const emoji     = (fields.emoji || '').trim();
+  const title     = (fields.email_title || '').trim();
+  const preheader = (fields.email_preheader || '').trim();
+  const rewardUrl = normalizeRewardUrl(fields.reward_url || '');
+
+  const titleHtml = emoji
+    ? `<span class="inbox-emoji">${_escHtml(emoji)}</span> ${_escHtml(title || '(제목 없음)')}`
+    : _escHtml(title || '(제목 없음)');
+
+  const urlValid = isValidRewardUrl(rewardUrl);
+  const urlBadge = !rewardUrl
+    ? '<span class="text-muted small">(보상 URL 미입력)</span>'
+    : !urlValid
+      ? `<span class="text-danger small">⚠ 잘못된 URL: ${_escHtml(rewardUrl)}</span>`
+      : `<a href="#" onclick="return false;" class="inbox-cta" title="${_escHtml(rewardUrl)}">보상 받기 →</a>`;
+
+  container.innerHTML = `
+    <div class="inbox-preview">
+      <div class="inbox-preview-label small text-muted mb-2">📬 수신함 미리보기 (Gmail 기준)</div>
+      <div class="inbox-emoji-title">${titleHtml}</div>
+      <div class="inbox-preheader">${_escHtml(preheader || '(프리헤더 미입력 — 본문 첫 줄이 대신 노출됩니다)')}</div>
+      <hr class="my-3">
+      <div class="inbox-body small text-muted">
+        (이메일 본문은 Marketo 에셋에 정의됨)
+      </div>
+      <div class="inbox-cta-wrap mt-3">${urlBadge}</div>
+    </div>
+  `;
+}
+
+/**
+ * 폼 4개 input(emoji/email_title/email_preheader/reward_url) 값을
+ * Gmail 스타일 카드로 즉시 렌더. ORCH의 통합 결재 카드에서도 같은 함수 재사용 가능.
+ *
+ * @param {string} formSelector    기본 '#campaign-form'
+ * @param {string} previewSelector 기본 '#inbox-preview'
+ */
+window.initLivePreview = function (formSelector = '#campaign-form', previewSelector = '#inbox-preview') {
+  const form    = document.querySelector(formSelector);
+  const preview = document.querySelector(previewSelector);
+  if (!form || !preview) return;
+
+  const collect = () => ({
+    emoji:           form.querySelector('input[name="emoji"]')?.value           ?? '',
+    email_title:     form.querySelector('input[name="email_title"]')?.value     ?? '',
+    email_preheader: form.querySelector('input[name="email_preheader"]')?.value ?? '',
+    reward_url:      form.querySelector('input[name="reward_url"]')?.value      ?? '',
+  });
+
+  const render = () => _renderInboxPreview(preview, collect());
+
+  ['emoji', 'email_title', 'email_preheader', 'reward_url'].forEach(name => {
+    const input = form.querySelector(`input[name="${name}"]`);
+    if (!input) return;
+    input.addEventListener('input', render);
+  });
+
+  // 프리셋 드롭다운: 선택 시 3개 input 채우고 미리보기 갱신
+  const presetSelect = form.querySelector('select[name="content_preset"]');
+  if (presetSelect && !presetSelect.dataset.populated) {
+    presetSelect.dataset.populated = '1';
+    presetSelect.appendChild(new Option('— 프리셋을 선택하세요 —', ''));
+    CONTENT_PRESETS.forEach((p, i) => {
+      presetSelect.appendChild(new Option(p.label, String(i)));
+    });
+    presetSelect.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.value, 10);
+      if (isNaN(idx) || !CONTENT_PRESETS[idx]) return;
+      const p = CONTENT_PRESETS[idx];
+      const emoji = form.querySelector('input[name="emoji"]');
+      const title = form.querySelector('input[name="email_title"]');
+      const pre   = form.querySelector('input[name="email_preheader"]');
+      if (emoji) emoji.value = p.emoji;
+      if (title) title.value = p.title;
+      if (pre)   pre.value   = p.preheader;
+      // 길이 가이드 카운터 갱신
+      [emoji, title, pre].forEach(inp => inp?.dispatchEvent(new Event('input', { bubbles: true })));
+      render();
+    });
+  }
+
+  render();
+};
+
 /** 보상 URL 정규화: trim + 줄바꿈/탭 제거 (후행 슬래시는 유지). */
 function normalizeRewardUrl(s) {
   if (!s) return '';
@@ -483,8 +645,12 @@ async function loadLogs() {
   });
 }
 
-loadLogs();
-setInterval(loadLogs, 2000);
+// detail.php(CAMPAIGN_ID 정의됨)에서만 로그 폴링 활성화.
+// new.php / edit.php는 campaign.js를 공유하지만 CAMPAIGN_ID가 없으므로 polling 생략.
+if (typeof CAMPAIGN_ID !== 'undefined' && CAMPAIGN_ID && document.getElementById('log-body')) {
+  loadLogs();
+  setInterval(loadLogs, 2000);
+}
 
 // ── 5분 취소 윈도 + 카운트다운 (ORCH Sprint 0) ──────────────────────────
 const URGENT_MS = 5 * 60 * 1000;
