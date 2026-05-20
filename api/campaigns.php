@@ -2,6 +2,7 @@
 // api/campaigns.php
 declare(strict_types=1);
 require_once __DIR__ . '/../src/Marketo/MarketoAPI.php';
+require_once __DIR__ . '/../src/Marketo/MarketoBulkImport.php';
 require_once __DIR__ . '/../src/InternalDB.php';
 require_once __DIR__ . '/../src/ScheduleRunner.php';
 
@@ -48,6 +49,99 @@ try {
             json_ok(['previous' => null]);
         }
         json_ok(['previous' => compute_cohort_stats($row)]);
+    }
+
+    // GET /api/campaigns/{id}/bulk-progress — Sprint 3 ORCH
+    // Bulk Import 진행률을 캠페인 detail.php가 polling. cron(check_bulk_imports.php)도
+    // 같은 데이터를 적재해 두지만, 운영자가 페이지를 열어둔 채로 더 짧은 주기(30초)로
+    // 실시간 확인하고 싶을 때 직접 Marketo에 한 번 더 GET 한다.
+    //
+    // 응답:
+    //   {
+    //     status, processed, total, failed, progress_pct,
+    //     rows_per_sec, eta_sec, elapsed_sec, started_at, batch_id
+    //   }
+    elseif ($method === 'GET' && $id && $action === 'bulk-progress') {
+        $row = DB::one(
+            'SELECT id, status, bulk_job_id, bulk_status, bulk_started_at, lead_count
+               FROM campaigns WHERE id=?',
+            [$id]
+        );
+        if (!$row) json_err('캠페인을 찾을 수 없습니다.', 404);
+
+        $batch_id   = (string)($row['bulk_job_id'] ?? '');
+        $started_at = $row['bulk_started_at'] ?? null;
+
+        // 캠페인이 이미 bulk_polling을 벗어났거나 batchId 없으면 진행률 조회 불가.
+        // 캐시된 bulk_status만 반환 → 클라이언트는 status로 분기해 reload할 수 있음.
+        if ($row['status'] !== 'bulk_polling' || $batch_id === '') {
+            json_ok([
+                'status'       => (string)($row['bulk_status'] ?? $row['status']),
+                'processed'    => 0,
+                'total'        => (int)($row['lead_count'] ?? 0),
+                'failed'       => 0,
+                'progress_pct' => 0.0,
+                'rows_per_sec' => 0.0,
+                'eta_sec'      => null,
+                'elapsed_sec'  => 0,
+                'started_at'   => $started_at,
+                'batch_id'     => $batch_id,
+                'campaign_status' => (string)$row['status'],
+                'available'    => false,
+            ]);
+        }
+
+        try {
+            $status_resp = MarketoBulkImport::getBulkImportStatus($batch_id);
+        } catch (Throwable $e) {
+            // 폴링 자체가 실패해도 화면 전체를 깨뜨리지 않고 캐시된 status만 반환.
+            // 다음 주기에 자동 회복.
+            json_ok([
+                'status'       => (string)($row['bulk_status'] ?? 'Importing'),
+                'processed'    => 0,
+                'total'        => (int)($row['lead_count'] ?? 0),
+                'failed'       => 0,
+                'progress_pct' => 0.0,
+                'rows_per_sec' => 0.0,
+                'eta_sec'      => null,
+                'elapsed_sec'  => 0,
+                'started_at'   => $started_at,
+                'batch_id'     => $batch_id,
+                'campaign_status' => 'bulk_polling',
+                'available'    => false,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+
+        // MKT 트랙이 추가하는 MarketoBulkImport::computeProgress 가 있으면 그걸 쓰고,
+        // 없으면 raw 응답에서 status / 카운트만 보수적으로 추출.
+        if (method_exists('MarketoBulkImport', 'computeProgress')) {
+            $progress = MarketoBulkImport::computeProgress($status_resp, $started_at);
+        } else {
+            $imported = (int)($status_resp['numOfLeadsProcessed'] ?? $status_resp['numOfRowsImported'] ?? 0);
+            $failed   = (int)($status_resp['numOfRowsFailed'] ?? 0);
+            $total    = (int)($row['lead_count'] ?? 0);
+            $elapsed  = $started_at ? max(0, time() - strtotime($started_at)) : 0;
+            $pct      = $total > 0 ? min(100.0, ($imported / $total) * 100.0) : 0.0;
+            $rps      = $elapsed > 0 ? round($imported / $elapsed, 2) : 0.0;
+            $eta      = ($rps > 0 && $total > $imported) ? (int)round(($total - $imported) / $rps) : null;
+            $progress = [
+                'status'       => (string)($status_resp['status'] ?? 'Importing'),
+                'processed'    => $imported,
+                'total'        => $total,
+                'failed'       => $failed,
+                'progress_pct' => round($pct, 1),
+                'rows_per_sec' => $rps,
+                'eta_sec'      => $eta,
+                'elapsed_sec'  => $elapsed,
+            ];
+        }
+
+        $progress['started_at']      = $started_at;
+        $progress['batch_id']        = $batch_id;
+        $progress['campaign_status'] = (string)$row['status'];
+        $progress['available']       = true;
+        json_ok($progress);
     }
 
     // GET /api/campaigns/{id}/delivery-result

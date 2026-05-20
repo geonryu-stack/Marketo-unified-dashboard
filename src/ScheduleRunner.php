@@ -23,6 +23,14 @@ class CampaignNeedsReviewException extends RuntimeException {}
  */
 function run_campaign_schedule(array $c, callable $log): void
 {
+    // Sprint 3 INFRA — run_id 자동 발급. 한 번의 schedule 시도를
+    // 식별하는 토큰을 진입부에서 미리 만들어 후속 record_status_transition
+    // 호출이 모두 동일 run_id를 받도록 보장한다. ensure_run_id 헬퍼가
+    // 아직 helpers.php에 정의되지 않은 환경(예: 단위 테스트)에서는
+    // 빈 run_id로 폴백한다 — sibling 차단/격리 로직과는 독립적이라 안전.
+    if (function_exists('ensure_run_id')) {
+        $c['run_id'] = ensure_run_id($c);
+    }
     $id      = $c['id'];
     $seg     = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id']]);
     $list_id = (int)($seg['marketo_audience_list_id'] ?? 0);

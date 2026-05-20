@@ -269,9 +269,23 @@ if ($c['status'] === 'scheduled') {
     <span class="badge bg-warning" id="bulk-status-badge"><?= htmlspecialchars($c['bulk_status'] ?? 'Importing') ?></span>
   </div>
   <div class="card-body" id="bulk-progress-body">
-    <p class="mb-1">대상자 <strong><?= number_format((int)$c['lead_count']) ?>명</strong>을 Bulk Import API로 업로드하고 있습니다.</p>
-    <p class="mb-1 text-muted small">batchId: <code><?= htmlspecialchars($c['bulk_job_id'] ?? '') ?></code></p>
-    <p class="mb-0 text-muted small">시작: <?= $c['bulk_started_at'] ? substr($c['bulk_started_at'], 0, 16) : '-' ?> · 30초마다 자동 갱신</p>
+    <p class="mb-2">대상자 <strong id="bulk-total-label"><?= number_format((int)$c['lead_count']) ?>명</strong>을 Bulk Import API로 업로드하고 있습니다.</p>
+
+    <!-- Sprint 3 ORCH — progress bar + 처리량 + ETA. /api/campaigns/{id}/bulk-progress 폴링 -->
+    <div class="progress mb-2" style="height: 22px;" role="progressbar" aria-label="Bulk Import 진행률">
+      <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
+           id="bulk-progress-bar" style="width: 0%;">0%</div>
+    </div>
+    <div class="d-flex justify-content-between small text-muted mb-2" id="bulk-progress-stats">
+      <span id="bulk-progress-counts">처리: 0 / <?= number_format((int)$c['lead_count']) ?></span>
+      <span id="bulk-progress-rate">속도: - rows/s</span>
+      <span id="bulk-progress-eta">남은 시간: 계산 중</span>
+    </div>
+    <p class="mb-0 text-muted small">
+      batchId: <code><?= htmlspecialchars($c['bulk_job_id'] ?? '') ?></code> ·
+      시작: <?= $c['bulk_started_at'] ? substr($c['bulk_started_at'], 0, 16) : '-' ?> ·
+      <span id="bulk-progress-updated">갱신 중...</span>
+    </p>
   </div>
 </div>
 <?php endif; ?>

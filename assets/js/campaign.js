@@ -563,23 +563,68 @@ function attachRewardUrlGuard() {
 }
 
 // Bulk Import 진행 카드 갱신 (status='bulk_polling'인 동안만)
+// Sprint 3 ORCH — /api/campaigns/{id}/bulk-progress 폴링하여 progress bar + rows/s + ETA 표시.
 let _bulkTimer = null;
+
+function _formatEta(sec) {
+  if (sec === null || sec === undefined) return '계산 중';
+  const s = Math.max(0, Math.floor(sec));
+  if (s < 60)   return `약 ${s}초 남음`;
+  if (s < 3600) return `약 ${Math.floor(s / 60)}분 ${s % 60}초 남음`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `약 ${h}시간 ${m}분 남음`;
+}
 
 async function loadBulkProgress() {
   const card = document.getElementById('bulk-progress-card');
   if (!card) return;
   try {
-    const res  = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}`);
+    const res  = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}/bulk-progress`);
     const data = await res.json();
     if (!data.success) return;
-    const c = data.data;
-    // 상태가 bulk_polling을 벗어나면 페이지 리로드 (UI 전체 갱신)
-    if (c.status !== 'bulk_polling') {
+    const p = data.data;
+
+    // 캠페인이 이미 bulk_polling을 벗어났으면 페이지 전체 리로드 (Complete/Failed 분기 UI로 전환).
+    if (p.campaign_status && p.campaign_status !== 'bulk_polling') {
       location.reload();
       return;
     }
+
     const badge = document.getElementById('bulk-status-badge');
-    if (badge) badge.textContent = c.bulk_status || 'Importing';
+    if (badge) badge.textContent = p.status || 'Importing';
+
+    const total     = Number(p.total)        || 0;
+    const processed = Number(p.processed)    || 0;
+    const pct       = Number(p.progress_pct) || 0;
+    const rps       = Number(p.rows_per_sec) || 0;
+    const eta       = p.eta_sec ?? null;
+
+    const bar = document.getElementById('bulk-progress-bar');
+    if (bar) {
+      const pctStr = pct.toFixed(1);
+      bar.style.width = `${Math.min(100, pct)}%`;
+      bar.textContent = `${pctStr}%`;
+      bar.setAttribute('aria-valuenow', String(pct));
+    }
+    const countsEl = document.getElementById('bulk-progress-counts');
+    if (countsEl) {
+      const failedStr = p.failed > 0 ? ` (실패 ${Number(p.failed).toLocaleString()})` : '';
+      countsEl.textContent = `처리: ${processed.toLocaleString()} / ${total.toLocaleString()}${failedStr}`;
+    }
+    const rateEl = document.getElementById('bulk-progress-rate');
+    if (rateEl) rateEl.textContent = `속도: ${rps > 0 ? rps.toFixed(1) : '-'} rows/s`;
+    const etaEl = document.getElementById('bulk-progress-eta');
+    if (etaEl) etaEl.textContent = `남은 시간: ${_formatEta(eta)}`;
+    const updEl = document.getElementById('bulk-progress-updated');
+    if (updEl) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      const note = p.available ? '' : ' (캐시)';
+      updEl.textContent = `마지막 갱신: ${hh}:${mm}:${ss}${note}`;
+    }
     if (!_bulkTimer) _bulkTimer = setInterval(loadBulkProgress, 30000);
   } catch (_) {}
 }

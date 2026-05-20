@@ -38,6 +38,22 @@ foreach ($due as $c) {
 
         job_log("    status={$job_status} errors={$err_count} failed={$failed}");
 
+        // Sprint 3 ORCH/MKT — computeProgress 가 정의돼 있으면 rows/sec + ETA 까지 로그.
+        // bulk_status 컬럼 자체는 'Importing/Complete/Failed' 만 유지 (VARCHAR(20) 호환).
+        // 정밀 데이터는 detail.php가 GET /api/campaigns/{id}/bulk-progress 로 직접 가져옴.
+        if (method_exists('MarketoBulkImport', 'computeProgress')) {
+            try {
+                $prog = MarketoBulkImport::computeProgress($status_resp, $c['bulk_started_at'] ?? null);
+                $pct  = $prog['progress_pct'] ?? 0;
+                $rps  = $prog['rows_per_sec'] ?? 0;
+                $eta  = $prog['eta_sec']      ?? null;
+                $etaStr = $eta === null ? '?' : (int)$eta . 's';
+                job_log("    progress={$pct}% rps={$rps} eta={$etaStr}");
+            } catch (Throwable $_e) {
+                // 진행률 산출 실패는 본업 방해 금지 — 무시.
+            }
+        }
+
         // bulk_status 컬럼은 진행 중에도 갱신 (UI 폴링용)
         DB::exec(
             "UPDATE campaigns SET bulk_status=?, updated_at=? WHERE id=?",

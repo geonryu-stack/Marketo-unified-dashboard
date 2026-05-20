@@ -23,6 +23,8 @@ $page_title = ($title ?? 'Marketo Automation') . ' — Marketo Automation';
          href="<?= APP_URL ?>/campaigns">캠페인</a>
       <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/schedules')) ? 'active fw-bold' : '' ?>"
          href="<?= APP_URL ?>/schedules">발송 스케줄</a>
+      <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/calendar')) ? 'active fw-bold' : '' ?>"
+         href="<?= APP_URL ?>/calendar">캘린더</a>
     </div>
   </div>
 </nav>
