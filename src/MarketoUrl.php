@@ -19,8 +19,11 @@ class MarketoUrl
      */
     public static function parse(string $url): ?array
     {
-        // URL 어디든 #XX12345 형태가 있으면 매칭. 'A1' suffix는 옵션.
-        if (!preg_match('/#([A-Z]{2})(\d+)[A-Z0-9]*/i', $url, $m)) {
+        // 두 가지 URL 패턴 지원:
+        //   1) 옛 Marketo UI:        ".../#SC7610A1"
+        //   2) Adobe Experience UI:  ".../marketo-engage/classic/EBP7309A1"
+        // 코드는 2~3글자(EBP, LBP 등 새 UI는 3글자도 존재).
+        if (!preg_match('/(?:#|classic\/)([A-Z]{2,3})(\d+)[A-Z0-9]*/i', $url, $m)) {
             return null;
         }
         $code = strtoupper($m[1]);
@@ -28,6 +31,7 @@ class MarketoUrl
         if ($id <= 0) return null;
 
         $map = [
+            // 옛 Marketo UI (legacy hash)
             'PG' => ['program',       'Program (콘텐츠 폴더)'],
             'EP' => ['emailProgram',  'Email Program (배치 발송 관리)'],
             'SC' => ['smartCampaign', 'Smart Campaign (조건 기반 발송)'],
@@ -37,6 +41,11 @@ class MarketoUrl
             'EM' => ['email',         'Email Asset (이메일 콘텐츠)'],
             'ML' => ['email',         'Email Asset (이메일 콘텐츠)'],
             'FO' => ['folder',        'Folder (폴더)'],
+            // Adobe Experience Cloud Marketo Engage (new UI)
+            'EBP' => ['emailProgram', 'Email Program (Adobe UI — 옛 EP와 동일)'],
+            'LBP' => ['program',      'Local Program (Adobe UI — 옛 PG와 동일)'],
+            'EBC' => ['smartCampaign','Smart Campaign (Adobe UI)'],
+            'STL' => ['staticList',   'Static List (Adobe UI)'],
         ];
         if (!isset($map[$code])) {
             return ['type' => 'unknown', 'id' => $id, 'label' => "알 수 없는 코드: #{$code}{$id}"];

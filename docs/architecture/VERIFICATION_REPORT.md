@@ -4,9 +4,12 @@
 
 ## 요약 — 운영자가 라이브 발송 전 반드시 확인해야 할 핵심 3건
 
-1. **🚨 memory의 발송 그룹 ID들(7309/7310/7311/7312/7321, 8293~8296)이 현재 Marketo 인스턴스의 첫 200개 programs / staticLists 응답에 없음.** memory가 다른 환경의 ID이거나 운영자가 옮긴 뒤 ID가 변경됐을 가능성. Marketo UI에서 실제 ID 확인 후 `groups` 테이블 시드 필요.
-2. **🚨 이 Marketo 계정은 `emailPrograms` 네임스페이스 권한이 전부 차단(610).** 즉 `scheduleEmailProgram` / `unapproveEmailProgram` POST도 작동 안 할 가능성 매우 큼. memory에 명시된 "Batch Smart Campaign 방식"이 맞다면 코드의 발송 호출 경로 자체를 Smart Campaign API로 전환해야 함. 라이브 캠페인 1건으로 운영자만 검증 가능.
-3. **🚨 DRY_RUN_MODE가 Notifier에만 적용돼 있고 MarketoAPI에는 가드 없음**이었음 — **본 검증 작업에서 즉시 패치 완료**. 이후 `define('DRY_RUN_MODE', true)` 시 모든 Marketo POST/DELETE가 가짜 응답으로 차단됨.
+> **2026-05-20 17:00 정정** — 운영자가 Adobe Experience UI URL(`EBP7309A1`)을 제공.
+> "memory IDs가 인스턴스에 없음"은 잘못된 결론이었음. ID들은 모두 존재하며 단지 GET API 권한이 없어 List 응답에 안 보였을 뿐. EBP는 Adobe UI의 Email Program 코드 (옛 `EP`와 동일 객체).
+
+1. ✅ **memory의 발송 그룹 ID 7309/7610 등은 실제 Marketo 인스턴스에 존재.** 운영자 Marketo 계정의 GET API 권한이 차단된 것일 뿐 (인스턴스 권한 매트릭스). `groups` 테이블 시드 완료.
+2. **⚠️ `emailPrograms` GET 네임스페이스가 운영자 계정에서 차단(610).** `scheduleEmailProgram` POST 권한은 별개라 라이브 1건 안 하면 미확정. memory와 코드 일치(EBP=EP=Email Program). 라이브 발송 시 정상 작동 가능성 큼.
+3. **🚨 DRY_RUN_MODE가 Notifier에만 적용돼 있고 MarketoAPI에는 가드 없음**이었음 — **본 검증 작업에서 즉시 패치 완료**. `define('DRY_RUN_MODE', true)` 시 모든 Marketo POST/DELETE 가짜 응답.
 
 PHPUnit: **98/98 (344 assertions)** — 기존 96 + DRY_RUN 가드 코드 존재 검증 2건.
 

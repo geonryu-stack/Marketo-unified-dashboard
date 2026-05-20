@@ -44,6 +44,21 @@ final class MarketoUrlTest extends TestCase
         $this->assertNull(MarketoUrl::parse(''));
     }
 
+    public function testParsesAdobeExperienceEbpAsEmailProgram(): void
+    {
+        $r = MarketoUrl::parse('https://experience.adobe.com/#/@doubleugames/so:528-HCC-317/marketo-engage/classic/EBP7309A1');
+        $this->assertSame('emailProgram', $r['type']);
+        $this->assertSame(7309, $r['id']);
+    }
+
+    public function testParsesAdobeExperienceEbpForProductionId(): void
+    {
+        // 운영자가 매주 수동 발송하는 7399도 동일 EBP — Email Program.
+        $r = MarketoUrl::parse('https://experience.adobe.com/#/@doubleugames/so:528-HCC-317/marketo-engage/classic/EBP7399A1');
+        $this->assertSame('emailProgram', $r['type']);
+        $this->assertSame(7399, $r['id']);
+    }
+
     public function testSuggestsCorrectColumn(): void
     {
         $this->assertSame('marketo_program_id',         MarketoUrl::suggestedColumn('program'));
