@@ -4,13 +4,31 @@
 $seg = DB::one('SELECT * FROM segments WHERE id = ?', [$id]);
 if (!$seg) { header('Location: ' . APP_URL . '/segments'); exit; }
 
-$seg['filters'] = json_decode($seg['filters'], true) ?? [];
-$title          = '세그먼트 편집: ' . htmlspecialchars($seg['name']);
-$field_defs     = get_field_defs();
+$seg['filters']    = json_decode($seg['filters'], true) ?? [];
+$title             = '세그먼트 편집: ' . htmlspecialchars($seg['name']);
+$all_defs          = get_field_defs();
+$hidden_fields     = array_column(array_filter($all_defs, fn($d) => !empty($d['hidden'])), 'field');
+$stripped_labels   = [];
+foreach ($seg['filters'] as $f) {
+    if (in_array($f['field'], $hidden_fields, true)) {
+        $def = current(array_filter($all_defs, fn($d) => $d['field'] === $f['field']));
+        $stripped_labels[] = $def['label'] ?? $f['field'];
+    }
+}
+$seg['filters']    = array_values(array_filter($seg['filters'], fn($f) => !in_array($f['field'], $hidden_fields, true)));
+$field_defs        = array_values(array_filter($all_defs, fn($d) => empty($d['hidden'])));
 $scripts        = ['segment-builder.js'];
 include __DIR__ . '/../layout_header.php';
 ?>
 <h2>세그먼트 편집</h2>
+<?php if (!empty($stripped_labels)): ?>
+<div class="alert alert-warning mt-3">
+  <strong>⚠ 사용 중단된 필터 조건이 자동으로 제거되었습니다.</strong><br>
+  제거된 항목: <?= implode(', ', array_map('htmlspecialchars', $stripped_labels)) ?><br>
+  아래에서 필터 조건을 확인하고, 필요한 조건을 다시 추가한 뒤 저장하세요.
+  <strong>조건이 없으면 저장할 수 없습니다.</strong>
+</div>
+<?php endif; ?>
 <form id="segment-form" class="mt-3">
   <div class="mb-3">
     <label class="form-label">이름 *</label>
@@ -48,29 +66,7 @@ include __DIR__ . '/../layout_header.php';
     </div>
   </div>
 
-  <h5 class="mt-3">반복 발송</h5>
-  <div class="row g-3 mb-4">
-    <div class="col-auto">
-      <div class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" name="is_recurring" id="is_recurring"
-               <?= $seg['is_recurring'] ? 'checked' : '' ?>>
-        <label class="form-check-label" for="is_recurring">반복 발송 활성화</label>
-      </div>
-    </div>
-    <div class="col-md-2">
-      <select class="form-select" name="send_day_of_week">
-        <?php foreach (['일','월','화','수','목','금','토'] as $i => $d): ?>
-          <option value="<?= $i ?>" <?= $seg['send_day_of_week'] == $i ? 'selected' : '' ?>><?= $d ?>요일</option>
-        <?php endforeach; ?>
-      </select>
-    </div>
-    <div class="col-md-2">
-      <input type="time" class="form-control" name="recurring_send_time"
-             value="<?= htmlspecialchars($seg['recurring_send_time'] ?? '10:00') ?>">
-    </div>
-  </div>
-
-  <button type="submit" class="btn btn-primary">저장</button>
+  <button type="submit" class="btn btn-primary mt-3">저장</button>
   <a href="<?= APP_URL ?>/segments" class="btn btn-outline-secondary ms-2">취소</a>
 </form>
 

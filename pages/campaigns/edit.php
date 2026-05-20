@@ -1,27 +1,39 @@
 <?php
-// pages/campaigns/new.php
-$title    = '새 캠페인';
-$segments = DB::all('SELECT id, name FROM segments ORDER BY name');
+// pages/campaigns/edit.php — $id는 router에서 주입
+$c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
+if (!$c) { header('Location: ' . APP_URL . '/campaigns'); exit; }
 
-$clone_data = null;
-$clone_from = $_GET['clone_from'] ?? null;
-if ($clone_from) {
-    $clone_data = DB::one('SELECT * FROM campaigns WHERE id=?', [$clone_from]);
+if (!in_array($c['status'], ['awaiting_approval', 'failed', 'draft'], true)) {
+    header('Location: ' . APP_URL . '/campaigns/' . $id);
+    exit;
 }
+
+$title    = '캠페인 편집';
+$segments = DB::all('SELECT id, name FROM segments ORDER BY name');
 
 $email_lib_program_id = (defined('MARKETO_EMAIL_ASSET_LIBRARY_ID') && (int)MARKETO_EMAIL_ASSET_LIBRARY_ID > 0)
     ? (int)MARKETO_EMAIL_ASSET_LIBRARY_ID : 0;
 
+// send_time 기본값: 기존 값 그대로 (datetime-local 형식으로 변환)
+$raw_st       = $c['send_time'] ?? '';
+$default_send = strlen($raw_st) > 5
+    ? date('Y-m-d\TH:i', strtotime($raw_st))
+    : (date('Y-m-d', strtotime('+1 day')) . 'T' . ($raw_st ?: '10:00'));
+
 include __DIR__ . '/../layout_header.php';
 ?>
-<h2>새 캠페인</h2>
-<p class="text-muted">저장하면 즉시 테스트 메일이 발송됩니다.</p>
-<form id="campaign-form" class="mt-3" style="max-width:640px">
+<div class="d-flex align-items-center gap-3 mb-3">
+  <h2 class="mb-0">캠페인 편집</h2>
+  <a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>" class="btn btn-sm btn-outline-secondary">← 상세로</a>
+</div>
+<p class="text-muted">저장하면 테스트 메일이 다시 발송됩니다.</p>
+
+<form id="edit-form" style="max-width:640px">
 
   <div class="mb-3">
     <label class="form-label">캠페인 이름 *</label>
     <input type="text" class="form-control" name="name" required
-           value="<?= htmlspecialchars($clone_data['name'] ?? '') ?>">
+           value="<?= htmlspecialchars($c['name']) ?>">
   </div>
 
   <div class="mb-3">
@@ -29,8 +41,7 @@ include __DIR__ . '/../layout_header.php';
     <select class="form-select" name="segment_id" required>
       <option value="">선택하세요</option>
       <?php foreach ($segments as $s): ?>
-        <option value="<?= $s['id'] ?>"
-          <?= ($clone_data['segment_id'] ?? '') === $s['id'] ? 'selected' : '' ?>>
+        <option value="<?= $s['id'] ?>" <?= $c['segment_id'] === $s['id'] ? 'selected' : '' ?>>
           <?= htmlspecialchars($s['name']) ?>
         </option>
       <?php endforeach; ?>
@@ -46,7 +57,7 @@ include __DIR__ . '/../layout_header.php';
     </select>
     <div class="form-text" id="email-asset-count"></div>
     <input type="hidden" name="asset_name" id="asset-name-input"
-           value="<?= htmlspecialchars($clone_data['asset_name'] ?? '') ?>">
+           value="<?= htmlspecialchars($c['asset_name'] ?? '') ?>">
   </div>
 
   <hr class="my-4">
@@ -56,41 +67,31 @@ include __DIR__ . '/../layout_header.php';
     <div class="col-auto">
       <label class="form-label">이모지 <code class="small">{{my.Emoji}}</code></label>
       <input type="text" class="form-control" name="emoji" style="width:90px"
-             value="<?= htmlspecialchars($clone_data['emoji'] ?? '') ?>"
-             placeholder="🎁">
+             value="<?= htmlspecialchars($c['emoji'] ?? '') ?>" placeholder="🎁">
     </div>
     <div class="col">
       <label class="form-label">이메일 제목 <code class="small">{{my.Title}}</code></label>
       <input type="text" class="form-control" name="email_title"
-             value="<?= htmlspecialchars($clone_data['email_title'] ?? '') ?>"
+             value="<?= htmlspecialchars($c['email_title'] ?? '') ?>"
              placeholder="이메일 제목을 입력하세요">
     </div>
   </div>
   <div class="mb-3">
     <label class="form-label">프리헤더 <code class="small">{{my.Preheader}}</code></label>
     <input type="text" class="form-control" name="email_preheader"
-           value="<?= htmlspecialchars($clone_data['email_preheader'] ?? '') ?>"
+           value="<?= htmlspecialchars($c['email_preheader'] ?? '') ?>"
            placeholder="수신함에서 미리 보이는 짧은 텍스트">
   </div>
   <div class="mb-3">
     <label class="form-label">보상 URL <code class="small">{{my.RewardUrl}}</code></label>
     <input type="url" class="form-control" name="reward_url"
-           value="<?= htmlspecialchars($clone_data['reward_url'] ?? '') ?>"
+           value="<?= htmlspecialchars($c['reward_url'] ?? '') ?>"
            placeholder="https://...">
   </div>
 
   <hr class="my-4">
 
   <div class="mb-3" style="max-width:320px">
-    <?php
-      if ($clone_data) {
-          $raw = $clone_data['send_time'] ?? '';
-          $hm  = strlen($raw) > 5 ? date('H:i', strtotime($raw)) : ($raw ?: '10:00');
-          $default_send = date('Y-m-d', strtotime('+1 day')) . 'T' . $hm;
-      } else {
-          $default_send = date('Y-m-d', strtotime('+1 day')) . 'T10:00';
-      }
-    ?>
     <label class="form-label">이메일 발송 일시 * <span class="text-muted fw-normal small">(수신자 현지시간)</span></label>
     <input type="datetime-local" class="form-control" name="send_time" required
            value="<?= $default_send ?>"
@@ -98,14 +99,15 @@ include __DIR__ . '/../layout_header.php';
     <div class="form-text">대상자 추출은 발송 16시간 전에 자동 실행됩니다. (최소 17시간 이후 선택)</div>
   </div>
 
-  <button type="submit" class="btn btn-primary" id="submit-btn">저장 및 테스트 메일 발송</button>
-  <a href="<?= APP_URL ?>/campaigns" class="btn btn-outline-secondary ms-2">취소</a>
+  <button type="submit" class="btn btn-primary" id="submit-btn">저장 및 테스트 메일 재발송</button>
+  <a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>" class="btn btn-outline-secondary ms-2">취소</a>
 </form>
 
 <script>
 const APP_URL        = '<?= APP_URL ?>';
+const CAMPAIGN_ID    = '<?= $c['id'] ?>';
 const EMAIL_LIB_ID   = <?= $email_lib_program_id ?>;
-const CLONE_EMAIL_ID = <?= $clone_data ? (int)($clone_data['marketo_cloned_email_id'] ?? 0) : 0 ?>;
+const CURRENT_EMAIL_ID = <?= (int)($c['marketo_cloned_email_id'] ?? 0) ?>;
 
 async function loadEmailAssets() {
   const sel   = document.getElementById('email-asset-select');
@@ -125,7 +127,7 @@ async function loadEmailAssets() {
       opt.dataset.name = e.name;
       sel.appendChild(opt);
     });
-    if (CLONE_EMAIL_ID) sel.value = String(CLONE_EMAIL_ID);
+    if (CURRENT_EMAIL_ID) sel.value = String(CURRENT_EMAIL_ID);
     const selected = sel.options[sel.selectedIndex];
     if (selected?.value) document.getElementById('asset-name-input').value = selected.dataset.name ?? '';
     count.textContent = emails.length ? `${emails.length}개 에셋` : '에셋 없음';
@@ -141,7 +143,7 @@ document.getElementById('email-asset-select').addEventListener('change', (e) => 
 
 loadEmailAssets();
 
-document.getElementById('campaign-form').addEventListener('submit', async (e) => {
+document.getElementById('edit-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
@@ -159,14 +161,14 @@ document.getElementById('campaign-form').addEventListener('submit', async (e) =>
     send_time:               f.send_time.value,
   };
   try {
-    const res  = await fetch(APP_URL + '/api/campaigns', {
+    const res  = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}/save`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (data.success) location.href = APP_URL + '/campaigns/' + data.data.id;
-    else { alert('생성 실패: ' + data.error); btn.disabled = false; btn.textContent = '저장 및 테스트 메일 발송'; }
+    if (data.success) location.href = `${APP_URL}/campaigns/${CAMPAIGN_ID}`;
+    else { alert('저장 실패: ' + data.error); btn.disabled = false; btn.textContent = '저장 및 테스트 메일 재발송'; }
   } catch {
-    alert('네트워크 오류'); btn.disabled = false; btn.textContent = '저장 및 테스트 메일 발송';
+    alert('네트워크 오류'); btn.disabled = false; btn.textContent = '저장 및 테스트 메일 재발송';
   }
 });
 </script>

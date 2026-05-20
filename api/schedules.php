@@ -1,7 +1,7 @@
 <?php
 // api/schedules.php
 declare(strict_types=1);
-require_once __DIR__ . '/../src/MarketoAPI.php';
+require_once __DIR__ . '/../src/Marketo/MarketoAPI.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 $params = $GLOBALS['route_params'] ?? [];

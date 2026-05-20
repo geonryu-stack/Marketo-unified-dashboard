@@ -8,7 +8,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 // GET /api/internal-db/fields
 if ($action === 'fields' && $method === 'GET') {
-    json_ok(get_field_defs());
+    json_ok(array_values(array_filter(get_field_defs(), fn($d) => empty($d['hidden']))));
 }
 
 // POST /api/internal-db/preview

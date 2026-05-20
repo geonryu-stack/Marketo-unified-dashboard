@@ -1,4 +1,7 @@
 -- sql/schema.sql
+-- 신규 설치 시 이 한 파일로 최신 상태 완성. 기존 환경은 sql/migrations/*.sql 순서대로 적용.
+-- 최종 업데이트: 2026-05-20 — 모든 migration 통합 (approval, bulk_import, delivery_tracking,
+--                                token_fields, defaults, segment_id_index)
 CREATE DATABASE IF NOT EXISTS `marketo_automation`
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `marketo_automation`;
@@ -6,8 +9,8 @@ USE `marketo_automation`;
 CREATE TABLE IF NOT EXISTS `segments` (
   `id` VARCHAR(36) NOT NULL,
   `name` VARCHAR(255) NOT NULL,
-  `description` TEXT DEFAULT '',
-  `filters` TEXT NOT NULL DEFAULT '[]',
+  `description` TEXT,
+  `filters` TEXT NOT NULL,
   `last_count` INT DEFAULT NULL,
   `last_extracted_at` VARCHAR(50) DEFAULT NULL,
   `marketo_program_id` VARCHAR(100) NOT NULL DEFAULT '',
@@ -16,6 +19,12 @@ CREATE TABLE IF NOT EXISTS `segments` (
   `is_recurring` TINYINT(1) NOT NULL DEFAULT 0,
   `send_day_of_week` INT NOT NULL DEFAULT 1,
   `recurring_send_time` VARCHAR(10) NOT NULL DEFAULT '10:00',
+  `default_email_id` VARCHAR(100) NOT NULL DEFAULT '',
+  `default_asset_name` VARCHAR(255) NOT NULL DEFAULT '',
+  `default_reward_url` TEXT,
+  `default_emoji` VARCHAR(20) DEFAULT NULL,
+  `default_send_time` VARCHAR(10) NOT NULL DEFAULT '10:00',
+  `default_name_prefix` VARCHAR(100) NOT NULL DEFAULT '',
   `created_at` VARCHAR(50) NOT NULL,
   `updated_at` VARCHAR(50) NOT NULL,
   PRIMARY KEY (`id`)
@@ -27,21 +36,37 @@ CREATE TABLE IF NOT EXISTS `campaigns` (
   `segment_id` VARCHAR(36) NOT NULL,
   `segment_name` VARCHAR(255) NOT NULL,
   `asset_name` VARCHAR(255) NOT NULL DEFAULT '',
-  `reward_url` TEXT NOT NULL DEFAULT '',
+  `reward_url` TEXT NOT NULL,
   `scheduled_at` VARCHAR(50) NOT NULL,
-  `send_time` VARCHAR(10) NOT NULL DEFAULT '',
+  `send_time` VARCHAR(50) NOT NULL DEFAULT '',
   `marketo_list_id` VARCHAR(100) DEFAULT NULL,
   `marketo_list_name` VARCHAR(255) DEFAULT NULL,
   `marketo_cloned_email_id` VARCHAR(100) DEFAULT NULL,
   `marketo_email_program_id` VARCHAR(100) DEFAULT NULL,
   `marketo_campaign_id` VARCHAR(100) DEFAULT NULL,
   `emoji` VARCHAR(20) DEFAULT NULL,
+  `email_title` VARCHAR(500) DEFAULT NULL,
+  `email_preheader` VARCHAR(500) DEFAULT NULL,
   `status` VARCHAR(50) NOT NULL DEFAULT 'draft',
   `lead_count` INT NOT NULL DEFAULT 0,
+  `bulk_job_id` VARCHAR(100) DEFAULT NULL,
+  `bulk_status` VARCHAR(20) DEFAULT NULL COMMENT 'Importing|Complete|Failed',
+  `bulk_started_at` DATETIME DEFAULT NULL,
+  `sent_count` INT NOT NULL DEFAULT 0,
+  `delivered_count` INT NOT NULL DEFAULT 0,
+  `bounce_count` INT NOT NULL DEFAULT 0,
+  `poll_status` VARCHAR(20) NOT NULL DEFAULT 'idle' COMMENT 'idle|polling|done|timeout',
+  `poll_started_at` DATETIME DEFAULT NULL,
+  `poll_next_at` DATETIME DEFAULT NULL,
+  `activity_polled_at` DATETIME DEFAULT NULL,
   `error_message` TEXT DEFAULT NULL,
   `created_at` VARCHAR(50) NOT NULL,
   `updated_at` VARCHAR(50) NOT NULL,
-  PRIMARY KEY (`id`)
+  `approved_at` VARCHAR(50) DEFAULT NULL,
+  `rejected_at` VARCHAR(50) DEFAULT NULL,
+  `reject_memo` TEXT DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_segment_id` (`segment_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `job_logs` (

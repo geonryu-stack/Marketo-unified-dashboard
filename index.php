@@ -34,6 +34,10 @@ $router->add('GET', '/campaigns/{id}', function ($p) {
     $id = $p['id'];
     include __DIR__ . '/pages/campaigns/detail.php';
 });
+$router->add('GET', '/campaigns/{id}/edit', function ($p) {
+    $id = $p['id'];
+    include __DIR__ . '/pages/campaigns/edit.php';
+});
 $router->add('GET', '/schedules', function ($p) {
     include __DIR__ . '/pages/schedules/index.php';
 });
@@ -77,27 +81,6 @@ $router->add('ANY', '/api/marketo/{resource}', function ($p) {
     require_once __DIR__ . '/api/marketo.php';
 });
 
-// ── 승인/거절 링크 (GET 확인 페이지, POST 실행) ──────────────
-$router->add('GET', '/campaigns/{id}/approve-via-link', function ($p) {
-    $p['action'] = 'approve-via-link';
-    $GLOBALS['route_params'] = $p;
-    require_once __DIR__ . '/api/campaigns.php';
-});
-$router->add('POST', '/campaigns/{id}/approve-via-link', function ($p) {
-    $p['action'] = 'approve-via-link';
-    $GLOBALS['route_params'] = $p;
-    require_once __DIR__ . '/api/campaigns.php';
-});
-$router->add('GET', '/campaigns/{id}/reject-via-link', function ($p) {
-    $p['action'] = 'reject-via-link';
-    $GLOBALS['route_params'] = $p;
-    require_once __DIR__ . '/api/campaigns.php';
-});
-$router->add('POST', '/campaigns/{id}/reject-via-link', function ($p) {
-    $p['action'] = 'reject-via-link';
-    $GLOBALS['route_params'] = $p;
-    require_once __DIR__ . '/api/campaigns.php';
-});
 
 // ── 디스패치 ─────────────────────────────────────────────────
 $method = $_SERVER['REQUEST_METHOD'];

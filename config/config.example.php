@@ -25,8 +25,23 @@ define('MARKETO_IDENTITY_URL', ''); // e.g. https://xxx.mktorest.com/identity
 
 // ── 앱 설정 ───────────────────────────────────────────────────
 define('SEND_TEST_EMAIL_TO', '');   // 쉼표 구분 e.g. a@b.com,c@d.com
+
+// ── 우회 발송 대상자 (사내 DB 미사용 시 이 주소로 Static List 채움) ──
+// 비워두면 INTERNAL_DB에서 추출. 라이브 테스트 시 실제 이메일 주소 입력.
+// RTZ(수신자 현지 시각 발송)를 위해 'email|country' 형식으로 국가 지정 가능.
+// e.g. 'a@b.com|South Korea,c@d.com|Japan'  (국가 생략 시 Marketo 계정 기본 timezone 사용)
+define('INTERNAL_DB_BYPASS_LEADS', ''); // e.g. 'a@b.com|South Korea,c@d.com|South Korea'
 define('APP_URL', 'http://localhost/marketo-automation');
 define('APPROVAL_SECRET', 'CHANGE_ME_RANDOM_STRING_32_CHARS');
+
+// ── Marketo Email Asset Library ──────────────────────────────
+define('MARKETO_EMAIL_ASSET_LIBRARY_ID', 7321); // Email Asset Library 고정 Program ID (양의 정수)
+
+// ── Bulk Import 분기 (대용량 발송 안정화) ─────────────────────
+// 대상자가 BULK_THRESHOLD를 초과하면 REST 다건 호출 대신 Bulk Import API(CSV 1콜) 사용.
+// 50K 단일 발송 시 좁은 시간 윈도우에 ~500 콜이 집중되는 것을 방지.
+define('BULK_THRESHOLD', 10000);          // 이 이상이면 Bulk 경로
+define('MARKETO_BULK_ENABLED', true);     // false면 임계값 초과해도 REST 경로 사용 (kill switch)
 
 // ── Marketo 토큰 캐시 파일 경로 ──────────────────────────────
 define('TOKEN_CACHE_FILE', __DIR__ . '/marketo_token.cache');

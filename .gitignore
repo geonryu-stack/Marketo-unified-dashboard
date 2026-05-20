@@ -2,15 +2,18 @@
 config/config.php
 config/marketo_token.cache
 
-# Next.js 환경 변수 (민감 정보, 레거시)
-.env.local
-.env*.local
-
 # 런타임 데이터
 data/
 
 # macOS
 .DS_Store
 
-# local Claude Code settings (personal, not project)
+# composer dependencies
+/vendor/
+
+# PHPUnit 캐시
+/.phpunit.cache/
+
+# Claude Code / superpowers 작업 스크래치
 .claude/settings.local.json
+/.superpowers/

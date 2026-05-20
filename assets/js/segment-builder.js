@@ -134,9 +134,6 @@ document.getElementById('segment-form').addEventListener('submit', async (e) => 
     marketo_program_id:        form.marketo_program_id.value,
     marketo_audience_list_id:  form.marketo_audience_list_id.value,
     marketo_email_program_id:  form.marketo_email_program_id.value,
-    is_recurring:              form.is_recurring.checked ? 1 : 0,
-    send_day_of_week:          parseInt(form.send_day_of_week.value),
-    recurring_send_time:       form.recurring_send_time.value,
   };
 
   const url    = SEGMENT_ID ? APP_URL + '/api/segments/' + SEGMENT_ID : APP_URL + '/api/segments';
