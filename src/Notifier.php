@@ -27,6 +27,21 @@ final class Notifier
     ];
 
     /**
+     * Sprint 2 INFRA — 중복 알림 throttle 윈도(초).
+     * 같은 (message-hash, level) 조합이 이 윈도 안에 다시 호출되면 silently skip 한다.
+     * cron 은 매 실행마다 PHP 프로세스가 재시작되므로 dedupe 는 단일 프로세스(=웹 요청 1건
+     * 또는 cron 1회 분량) 내 중복만 차단한다. cross-process dedupe 가 필요해지면
+     * 후속 sprint 에서 파일/DB 기반으로 승격한다.
+     */
+    private const THROTTLE_WINDOW_SECONDS = 300;
+
+    /**
+     * @var array<string, int>  key = sha1(level . "|" . message), value = 마지막 발송 unix ts.
+     * 정적 캐시 — 동일 프로세스 안에서만 유효. 시그니처 변경 없이 내부에서만 동작.
+     */
+    private static array $recent_sends = [];
+
+    /**
      * Slack 알림 발송.
      *
      * @param string $message 본문 (다른 zone이 만든 사람 가독 문자열)
@@ -38,6 +53,12 @@ final class Notifier
         $emoji = self::LEVEL_EMOJI[$level] ?? self::LEVEL_EMOJI['info'];
         $normalized_level = isset(self::LEVEL_EMOJI[$level]) ? $level : 'info';
         $line = sprintf('%s [%s] %s', $emoji, strtoupper($normalized_level), $message);
+
+        // Sprint 2 INFRA — 동일 프로세스 내 5분 throttle.
+        // dedupe key는 (정규화 level + 원본 message). 이모지 prefix 제외하여 메시지 자체만 비교.
+        if (self::shouldThrottle($normalized_level, $message)) {
+            return;
+        }
 
         $url = defined('SLACK_WEBHOOK_URL') ? (string)SLACK_WEBHOOK_URL : '';
 
@@ -89,6 +110,43 @@ final class Notifier
             );
             return;
         }
+    }
+
+    /**
+     * Sprint 2 INFRA — 중복 알림 throttle 판정.
+     * 동일 (level, message) 조합이 THROTTLE_WINDOW_SECONDS 안에 다시 호출되면 true 반환 → 호출자는 silently skip.
+     * 정적 캐시에 마지막 발송 시각을 기록한다.
+     *
+     * @internal — 시그니처 동결 대상 아님. 테스트는 slack() 경유로 간접 검증.
+     */
+    private static function shouldThrottle(string $level, string $message): bool
+    {
+        $key = sha1($level . '|' . $message);
+        $now = time();
+
+        // 캐시 정리: 윈도 밖 항목 제거 (메모리 누수 방지 — 장기 실행 프로세스 대비)
+        foreach (self::$recent_sends as $k => $ts) {
+            if ($now - $ts > self::THROTTLE_WINDOW_SECONDS) {
+                unset(self::$recent_sends[$k]);
+            }
+        }
+
+        if (isset(self::$recent_sends[$key]) && $now - self::$recent_sends[$key] <= self::THROTTLE_WINDOW_SECONDS) {
+            return true; // 윈도 내 중복 → skip
+        }
+
+        self::$recent_sends[$key] = $now;
+        return false;
+    }
+
+    /**
+     * Sprint 2 INFRA — 테스트 전용 throttle 캐시 초기화 훅.
+     * 단위 테스트가 같은 프로세스 안에서 여러 케이스를 검증할 때 필요.
+     * 프로덕션 코드는 호출하지 말 것 (호출 자체는 무해하나 의미 없음).
+     */
+    public static function resetThrottleForTests(): void
+    {
+        self::$recent_sends = [];
     }
 
     /**

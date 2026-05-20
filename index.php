@@ -81,6 +81,12 @@ $router->add('ANY', '/api/marketo/{resource}', function ($p) {
     require_once __DIR__ . '/api/marketo.php';
 });
 
+// Sprint 2 INFRA — Healthcheck (GET-only).
+// KPI 대시보드/Uptime 모니터링이 사용. 외부 호출 없이 5초 안에 응답.
+$router->add('GET', '/api/health', function ($p) {
+    require_once __DIR__ . '/api/health.php';
+});
+
 
 // ── 디스패치 ─────────────────────────────────────────────────
 $method = $_SERVER['REQUEST_METHOD'];

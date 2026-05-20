@@ -28,6 +28,14 @@ final class NotifierTest extends TestCase
         }
     }
 
+    protected function setUp(): void
+    {
+        // Sprint 2 INFRA — 매 테스트 시작 전 throttle 캐시 초기화.
+        // 정적 캐시가 테스트 간 누설되면 (message, level) 우연 충돌 시 알림이 silently skip되어
+        // 진단 어려운 false fail이 발생할 수 있다.
+        Notifier::resetThrottleForTests();
+    }
+
     public function testSlackDoesNotThrowWhenWebhookEmpty(): void
     {
         // throw 금지 — 알림 실패가 본업을 막아선 안 됨.
@@ -88,6 +96,59 @@ final class NotifierTest extends TestCase
         $this->assertStringContainsString('[INFO]', $out);
         $this->assertStringContainsString('[notify:info]', $out);
         $this->assertStringContainsString('mystery-level', $out);
+    }
+
+    /**
+     * Sprint 2 INFRA — 동일 (message, level) 조합이 짧은 시간 내 2회 호출되면
+     * 두 번째 호출은 silently skip(stdout 출력 없음)되어야 한다.
+     */
+    public function testSlackThrottleSuppressesDuplicateMessage(): void
+    {
+        ob_start();
+        Notifier::slack('throttled-message', 'warn');
+        $first = (string)ob_get_clean();
+
+        ob_start();
+        Notifier::slack('throttled-message', 'warn');
+        $second = (string)ob_get_clean();
+
+        // 첫 호출은 stdout 폴백으로 prefix 가 보여야 함.
+        $this->assertStringContainsString('[notify:warn]', $first);
+        $this->assertStringContainsString('throttled-message', $first);
+
+        // 두 번째 호출은 정확히 동일 (message, level) 이므로 출력 없음.
+        $this->assertSame('', $second, 'throttle 윈도 내 중복 호출은 출력이 없어야 한다');
+    }
+
+    /**
+     * Sprint 2 INFRA — 같은 message 라도 다른 level 이면 별도 키로 취급되어 둘 다 발송된다.
+     * 또한 다른 message 면 같은 level 이라도 둘 다 발송된다.
+     */
+    public function testSlackThrottleDoesNotSuppressDifferentKey(): void
+    {
+        // 다른 level — 같은 message
+        ob_start();
+        Notifier::slack('shared-text', 'info');
+        $info_out = (string)ob_get_clean();
+
+        ob_start();
+        Notifier::slack('shared-text', 'warn'); // level 다름
+        $warn_out = (string)ob_get_clean();
+
+        $this->assertStringContainsString('[notify:info]', $info_out);
+        $this->assertStringContainsString('[notify:warn]', $warn_out);
+
+        // 다른 message — 같은 level
+        ob_start();
+        Notifier::slack('first-distinct', 'critical');
+        $a = (string)ob_get_clean();
+
+        ob_start();
+        Notifier::slack('second-distinct', 'critical');
+        $b = (string)ob_get_clean();
+
+        $this->assertStringContainsString('first-distinct', $a);
+        $this->assertStringContainsString('second-distinct', $b);
     }
 
     public function testSlackSignatureFrozen(): void
