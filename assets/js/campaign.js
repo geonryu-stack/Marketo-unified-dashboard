@@ -549,3 +549,132 @@ if (document.readyState === 'loading') {
 } else {
   initCancelCountdown();
 }
+
+// ── Sprint 2 ORCH ⑮⑱ — 정적 인박스 미리보기 / 직전 회차 / 코호트 추세 ──
+
+function _esc(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function renderStaticInboxPreview(tokens, containerEl) {
+  if (!containerEl) return;
+  const emoji     = tokens.emoji     || '';
+  const title     = tokens.title     || '(제목 없음)';
+  const preheader = tokens.preheader || '';
+  const reward    = tokens.reward_url || '';
+  const truncTitle = title.length > 50 ? title.slice(0,50) + '…' : title;
+  const truncPre   = preheader.length > 90 ? preheader.slice(0,90) + '…' : preheader;
+  containerEl.innerHTML = `
+    <div style="font-family: -apple-system, 'Segoe UI', sans-serif;">
+      <div class="d-flex align-items-start gap-2">
+        <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
+             style="width:32px;height:32px;font-size:14px;flex-shrink:0">M</div>
+        <div style="min-width:0;flex:1">
+          <div class="d-flex justify-content-between">
+            <strong class="text-truncate" style="max-width:60%">Marketo</strong>
+            <span class="text-muted small">방금</span>
+          </div>
+          <div class="text-truncate fw-semibold" style="font-size:13px">
+            ${_esc(emoji)} ${_esc(truncTitle)}
+          </div>
+          <div class="text-truncate text-muted" style="font-size:12px">
+            ${_esc(truncPre)}
+          </div>
+        </div>
+      </div>
+      ${reward ? `<div class="mt-2 small"><span class="text-muted">랜딩:</span>
+        <a href="${_esc(reward)}" target="_blank" rel="noopener" class="text-truncate d-inline-block"
+           style="max-width:100%">${_esc(reward)}</a></div>` : ''}
+    </div>
+  `;
+}
+
+async function loadPreviousCohort() {
+  const el = document.getElementById('previous-cohort');
+  if (!el) return;
+  try {
+    const res = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}/previous-cohort`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const prev = (data.data && data.data.previous) || data.previous || null;
+    if (!prev) {
+      el.innerHTML = '<div class="text-muted">이 segment의 첫 회차입니다.</div>';
+      return;
+    }
+    const cov   = Number(prev.coverage_pct ?? 0).toFixed(1);
+    const deliv = Number(prev.delivery_rate_pct ?? 0).toFixed(1);
+    el.innerHTML = `
+      <dl class="row mb-0">
+        <dt class="col-sm-5">발송 일시</dt><dd class="col-sm-7">${_esc((prev.send_time || '').substring(0,16))}</dd>
+        <dt class="col-sm-5">캠페인</dt><dd class="col-sm-7 text-truncate" title="${_esc(prev.name)}">${_esc(prev.name || '-')}</dd>
+        <dt class="col-sm-5">대상자</dt><dd class="col-sm-7">${(prev.lead_count ?? 0).toLocaleString()}명</dd>
+        <dt class="col-sm-5">발송</dt><dd class="col-sm-7">${(prev.sent_count ?? 0).toLocaleString()}건</dd>
+        <dt class="col-sm-5">Coverage</dt><dd class="col-sm-7"><strong>${cov}%</strong></dd>
+        <dt class="col-sm-5">Delivery</dt><dd class="col-sm-7"><strong>${deliv}%</strong></dd>
+        <dt class="col-sm-5">Bounce</dt><dd class="col-sm-7">${(prev.bounce_count ?? 0).toLocaleString()}건</dd>
+      </dl>`;
+  } catch (e) {
+    el.innerHTML = `<div class="text-warning small">직전 회차 정보 실패: ${_esc(e.message)}</div>`;
+  }
+}
+
+async function loadCohortTrend() {
+  const el = document.getElementById('cohort-trend');
+  if (!el || typeof CAMPAIGN_SEGMENT_ID === 'undefined') return;
+  try {
+    const res = await fetch(`${APP_URL}/api/segments/${CAMPAIGN_SEGMENT_ID}?action=cohort&limit=5`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const body = data.data || data;
+    const campaigns = body.campaigns || [];
+    if (campaigns.length === 0) {
+      el.innerHTML = '<div class="text-muted">이전 회차 데이터가 없습니다.</div>';
+      return;
+    }
+    const avg_cov   = Number(body.avg_coverage_pct ?? 0).toFixed(1);
+    const avg_deliv = Number(body.avg_delivery_rate_pct ?? 0).toFixed(1);
+    const trend = body.trend || 'flat';
+    const arrow = trend === 'up' ? '↑' : (trend === 'down' ? '↓' : '→');
+    const arrowCls = trend === 'up' ? 'text-success' : (trend === 'down' ? 'text-danger' : 'text-muted');
+    let rowsHtml = '';
+    campaigns.forEach(c => {
+      const cov   = Number(c.coverage_pct ?? 0);
+      const deliv = Number(c.delivery_rate_pct ?? 0);
+      rowsHtml += `<tr>
+        <td class="small text-muted">${_esc((c.send_time || '').substring(0,10))}</td>
+        <td class="small text-truncate" style="max-width:160px" title="${_esc(c.name)}">${_esc(c.name || '-')}</td>
+        <td class="small">${(c.lead_count ?? 0).toLocaleString()}</td>
+        <td><div class="progress" style="height:10px;background:#eef"><div class="progress-bar bg-info" style="width:${Math.min(100,cov)}%"></div></div><span class="small text-muted">${cov.toFixed(1)}%</span></td>
+        <td><div class="progress" style="height:10px;background:#efe"><div class="progress-bar bg-success" style="width:${Math.min(100,deliv)}%"></div></div><span class="small text-muted">${deliv.toFixed(1)}%</span></td>
+      </tr>`;
+    });
+    el.innerHTML = `
+      <div class="d-flex gap-3 mb-2 small">
+        <div>평균 Coverage: <strong>${avg_cov}%</strong></div>
+        <div>평균 Delivery: <strong>${avg_deliv}%</strong></div>
+        <div>추세: <span class="${arrowCls} fw-bold">${arrow} ${trend}</span></div>
+      </div>
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>발송일</th><th>캠페인</th><th>대상자</th><th>Coverage</th><th>Delivery</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+  } catch (e) {
+    el.innerHTML = `<div class="text-warning small">코호트 추세 실패: ${_esc(e.message)}</div>`;
+  }
+}
+
+// awaiting_approval 카드 진입 시 호출
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof CAMPAIGN_STATUS !== 'undefined' && CAMPAIGN_STATUS === 'awaiting_approval') {
+    loadPreviousCohort();
+    const previewEl = document.getElementById('inbox-preview');
+    if (previewEl && typeof APPROVAL_TOKENS !== 'undefined') {
+      renderStaticInboxPreview(APPROVAL_TOKENS, previewEl);
+    }
+  }
+  if (document.getElementById('cohort-trend')) {
+    loadCohortTrend();
+  }
+});

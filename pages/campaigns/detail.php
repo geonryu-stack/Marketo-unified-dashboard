@@ -119,6 +119,21 @@ $is_urgent      = $hours_to_send !== null && $hours_to_send >= 0 && $hours_to_se
             좌측의 캠페인 기본 정보와 토큰 미리보기를 확인한 후, 아래 체크리스트를 모두 점검해야 승인 버튼이 활성화됩니다.
           </p>
 
+          <!-- Sprint 2 ORCH ⑮ — 직전 회차 비교 + 인박스 미리보기 -->
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <h6 class="text-muted text-uppercase small mb-2">직전 회차 비교</h6>
+              <div id="previous-cohort" class="border rounded p-2 bg-light small text-muted">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                불러오는 중...
+              </div>
+            </div>
+            <div class="col-md-6">
+              <h6 class="text-muted text-uppercase small mb-2">인박스 미리보기</h6>
+              <div id="inbox-preview" class="inbox-preview-static border rounded p-2 bg-white"></div>
+            </div>
+          </div>
+
           <?php
             $ss_path = $c['test_screenshot_path'] ?? null;
             $ss_url  = $ss_path ? (rtrim(APP_URL, '/') . '/' . ltrim((string)$ss_path, '/')) : null;
@@ -276,6 +291,19 @@ if ($c['status'] === 'scheduled') {
 </div>
 <?php endif; ?>
 
+<?php if (in_array($c['status'], ['sent', 'scheduled'], true)): ?>
+<!-- Sprint 2 ORCH ⑱ — 코호트 추세 (직전 5회차) -->
+<div class="card mb-4">
+  <div class="card-header"><strong>이 세그먼트의 코호트 추세</strong> <span class="text-muted small">(직전 5회차)</span></div>
+  <div class="card-body">
+    <div id="cohort-trend" class="text-muted small">
+      <div class="spinner-border spinner-border-sm" role="status"></div>
+      불러오는 중...
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
 <h5>실행 로그</h5>
 <table class="table table-sm bg-white" id="log-table">
   <thead><tr><th>단계</th><th>상태</th><th>메시지</th><th>시각</th></tr></thead>
@@ -285,7 +313,14 @@ if ($c['status'] === 'scheduled') {
 <script>
 const APP_URL       = '<?= APP_URL ?>';
 const CAMPAIGN_ID   = '<?= $c['id'] ?>';
+const CAMPAIGN_SEGMENT_ID = '<?= $c['segment_id'] ?>';
 const POLL_STATUS   = '<?= $c['poll_status'] ?? 'idle' ?>';
 const CAMPAIGN_STATUS = '<?= $c['status'] ?>';
+const APPROVAL_TOKENS = {
+  emoji:      <?= json_encode($c['emoji'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
+  title:      <?= json_encode($c['email_title'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
+  preheader:  <?= json_encode($c['email_preheader'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
+  reward_url: <?= json_encode($c['reward_url'] ?? '', JSON_UNESCAPED_UNICODE) ?>,
+};
 </script>
 <?php include __DIR__ . '/../layout_footer.php'; ?>
