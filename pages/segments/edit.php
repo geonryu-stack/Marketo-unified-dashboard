@@ -69,9 +69,11 @@ include __DIR__ . '/../layout_header.php';
              value="<?= htmlspecialchars($seg['marketo_audience_list_id'] ?? '') ?>">
     </div>
     <div class="col-md-4">
-      <label class="form-label">Email Program ID</label>
-      <input type="text" class="form-control" name="marketo_email_program_id" id="m-ep-id"
-             value="<?= htmlspecialchars($seg['marketo_email_program_id'] ?? '') ?>">
+      <label class="form-label">Email Program <small class="text-muted fw-normal">(이름으로 선택)</small></label>
+      <select class="form-select" name="marketo_email_program_id" id="m-ep-id"
+              data-current-value="<?= htmlspecialchars($seg['marketo_email_program_id'] ?? '') ?>">
+        <option value="">로딩 중...</option>
+      </select>
     </div>
   </div>
 

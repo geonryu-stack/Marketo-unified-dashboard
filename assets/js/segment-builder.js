@@ -478,10 +478,16 @@ function _applyGroupPreset(opt) {
   const p = document.getElementById('m-program-id');
   const l = document.getElementById('m-list-id');
   const e = document.getElementById('m-ep-id');
-  if (p && opt.dataset.programId)      p.value = opt.dataset.programId;
-  if (l && opt.dataset.listId)         l.value = opt.dataset.listId;
+  if (p && opt.dataset.programId) p.value = opt.dataset.programId;
+  if (l && opt.dataset.listId)    l.value = opt.dataset.listId;
   // email_program_id는 그룹에 없을 수 있음(NULL) — 비어있을 때만 자동 채움
-  if (e && opt.dataset.emailProgramId && !e.value) e.value = opt.dataset.emailProgramId;
+  if (e && opt.dataset.emailProgramId && !e.value) {
+    if (e.tagName === 'SELECT') {
+      _setSelectValueOrAddOption(e, opt.dataset.emailProgramId, '(그룹 프리셋) #' + opt.dataset.emailProgramId);
+    } else {
+      e.value = opt.dataset.emailProgramId;
+    }
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -493,8 +499,94 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearBtn = document.getElementById('group-preset-clear');
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
-      ['m-program-id','m-list-id','m-ep-id'].forEach(id => { const el = document.getElementById(id); if (el) el.value=''; });
+      ['m-program-id','m-list-id','m-ep-id'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.tagName === 'SELECT') el.value = ''; else el.value = '';
+      });
       if (sel) sel.value = '';
     });
   }
 });
+
+// ── Email Program 셀렉트 (Post-S3 Option B) ───────────────────
+// 이 Marketo 인스턴스는 emailPrograms/campaigns List API가 610(권한 차단)이라
+// 동적 fetch 불가능. 대신 groups 테이블에 등록된 EP ID로 셀렉트를 채운다.
+// 운영자가 한 번 그룹 EP ID를 SQL UPDATE 하면 이후 1클릭.
+async function _loadEmailProgramOptions() {
+  const sel = document.getElementById('m-ep-id');
+  if (!sel || sel.tagName !== 'SELECT') return;
+  const currentValue = (sel.dataset.currentValue || '').trim();
+
+  let groups = [];
+  try {
+    const res  = await fetch(APP_URL + '/api/groups');
+    const data = await res.json();
+    if (data.success) groups = (data.data && data.data.groups) || [];
+  } catch (_) {}
+
+  sel.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = '— 선택 또는 직접 입력 —';
+  sel.appendChild(blank);
+
+  let matched = false;
+  groups.forEach(g => {
+    const ep = g.marketo_email_program_id;
+    const opt = document.createElement('option');
+    if (ep) {
+      opt.value = String(ep);
+      opt.textContent = g.name + ' (#' + ep + ')';
+      if (currentValue && String(ep) === currentValue) { opt.selected = true; matched = true; }
+    } else {
+      // EP ID 미등록 그룹 — 비활성, 안내 목적
+      opt.value = '';
+      opt.textContent = g.name + ' (EP ID 미등록 — DB UPDATE 필요)';
+      opt.disabled = true;
+    }
+    sel.appendChild(opt);
+  });
+
+  // 기존 값이 그룹 4개 외라면 보존 (수동 입력된 적 있음)
+  if (currentValue && !matched) {
+    const orphan = document.createElement('option');
+    orphan.value = currentValue;
+    orphan.textContent = '직접 입력된 ID: #' + currentValue;
+    orphan.selected = true;
+    sel.insertBefore(orphan, sel.children[1]);
+  }
+
+  // 마지막: "직접 입력" 옵션
+  const manual = document.createElement('option');
+  manual.value = '__manual__';
+  manual.textContent = '+ 직접 입력 (위 그룹에 없는 EP)';
+  sel.appendChild(manual);
+
+  sel.addEventListener('change', () => {
+    if (sel.value !== '__manual__') return;
+    const v = (prompt('Email Program ID 입력 (Marketo UI > Email Program > URL의 숫자)') || '').trim();
+    if (/^\d+$/.test(v)) {
+      _setSelectValueOrAddOption(sel, v, '직접 입력된 ID: #' + v);
+    } else {
+      sel.value = currentValue || '';
+      if (v) alert('숫자 ID만 허용됩니다.');
+    }
+  });
+}
+
+// _applyGroupPreset가 EP id를 자동 채울 때 셀렉트 옵션 매칭 또는 ad-hoc 추가
+function _setSelectValueOrAddOption(sel, value, label) {
+  if (!sel || !value) return;
+  if ([...sel.options].some(o => o.value === String(value))) {
+    sel.value = String(value);
+    return;
+  }
+  const opt = document.createElement('option');
+  opt.value = String(value);
+  opt.textContent = label || ('(#' + value + ')');
+  opt.selected = true;
+  sel.appendChild(opt);
+}
+
+document.addEventListener('DOMContentLoaded', _loadEmailProgramOptions);
