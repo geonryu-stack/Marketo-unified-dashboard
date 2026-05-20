@@ -87,6 +87,29 @@ $router->add('GET', '/api/health', function ($p) {
     require_once __DIR__ . '/api/health.php';
 });
 
+// ── Sprint 3 INFRA — 신규 라우트 등록 ─────────────────────────
+// INFRA는 라우팅만 담당. 핸들러 파일(api/content-presets.php, api/calendar.php,
+// pages/calendar/index.php)은 ASSET/ORCH 트랙이 만든다. 파일이 없을 때 라우트가
+// 매칭되면 PHP 의 require_once/include 가 fatal error 를 던지므로, 트랙 머지
+// 순서는 핸들러 → INFRA 라우터 순으로 합쳐도 되고, 라우터 → 핸들러 순으로
+// 합쳐도 라우트가 호출되지 않는 한 안전하다 (현재 호출자는 신규 트랙들 뿐).
+$router->add('ANY', '/api/content-presets', function ($p) {
+    require_once __DIR__ . '/api/content-presets.php';
+});
+$router->add('ANY', '/api/content-presets/{id}', function ($p) {
+    $GLOBALS['route_params'] = $p;
+    require_once __DIR__ . '/api/content-presets.php';
+});
+$router->add('GET', '/api/calendar', function ($p) {
+    require_once __DIR__ . '/api/calendar.php';
+});
+$router->add('GET', '/calendar', function ($p) {
+    include __DIR__ . '/pages/calendar/index.php';
+});
+// 사내 DB 스키마 드리프트 — DB 트랙이 api/internal-db.php 안에서 action='schema-drift'
+// 분기를 처리한다. 기존 ANY /api/internal-db/{action} catch-all 라우트가 이미
+// schema-drift 도 매칭하므로 별도 라우트는 등록하지 않는다 (라우트 변경 금지 원칙).
+
 
 // ── 디스패치 ─────────────────────────────────────────────────
 $method = $_SERVER['REQUEST_METHOD'];

@@ -493,8 +493,24 @@ function job_log(
     ?string $run_id = null
 ): void {
     if (defined('RUNNING_AS_CLI') && RUNNING_AS_CLI) {
-        $prefix = $run_id !== null ? '[run:' . substr($run_id, 0, 8) . '] ' : '';
-        echo '[' . date('Y-m-d H:i:s') . '] ' . $prefix . $message . PHP_EOL;
+        // Sprint 3 INFRA — LOG_FORMAT='json' 이면 stdout 출력을 JSON Lines 로.
+        // 'text'(기본) 일 때는 기존 포맷 100% 유지.
+        $is_json = defined('LOG_FORMAT') && LOG_FORMAT === 'json';
+        if ($is_json) {
+            $line = json_encode([
+                'ts'          => date('c'),
+                'level'       => $status,
+                'step'        => $step,
+                'run_id'      => $run_id,
+                'campaign_id' => $campaign_id,
+                'message'     => $message,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            // json_encode 가 NULL 반환할 가능성(인코딩 오류 등)에 대비.
+            echo ($line === false ? $message : $line) . PHP_EOL;
+        } else {
+            $prefix = $run_id !== null ? '[run:' . substr($run_id, 0, 8) . '] ' : '';
+            echo '[' . date('Y-m-d H:i:s') . '] ' . $prefix . $message . PHP_EOL;
+        }
     }
     if ($campaign_id !== null) {
         DB::exec(
@@ -502,6 +518,38 @@ function job_log(
             [new_uuid(), $campaign_id, $step, $status, $run_id, $message, now_str()]
         );
     }
+}
+
+// ── Sprint 3 INFRA — run_id 발급/조회 ───────────────────────────
+//
+// 안정 API 시그니처 (시그니처 동결):
+//   ensure_run_id(array $campaign): string
+//
+// 입력 $campaign 행에 run_id 값이 이미 있으면 그대로 반환한다.
+// 없으면 새 UUID 를 발급해 campaigns.run_id 컬럼을 UPDATE 후 발급된 값을 반환.
+//
+// 호출자: ORCH의 ScheduleRunner 진입부 + api/campaigns.php approve 분기.
+// 한 발송 사이클의 모든 job_log/status_history/Marketo 호출에 동일한 run_id를
+// 묶어주는 게 목적. 본 함수 자체는 *최소 1회의 UPDATE*만 발생시키며,
+// 동일 캠페인에서 두 번째 호출은 입력 배열의 'run_id'를 그대로 반환한다.
+//
+// 호출 예: $rid = ensure_run_id($campaign); // ScheduleRunner 진입부 1회
+function ensure_run_id(array $campaign): string
+{
+    $existing = $campaign['run_id'] ?? null;
+    if (is_string($existing) && $existing !== '') {
+        return $existing;
+    }
+
+    $id = $campaign['id'] ?? null;
+    if (!is_string($id) || $id === '') {
+        // run_id 발급은 가능하나 어디에 박제할지 모르면 의미가 없다 — 명확히 실패.
+        throw new RuntimeException('ensure_run_id: campaign["id"] 가 비어있습니다.');
+    }
+
+    $new = new_uuid();
+    DB::exec('UPDATE campaigns SET run_id=? WHERE id=?', [$new, $id]);
+    return $new;
 }
 
 // ── DRY_RUN_MODE 헬퍼 ─────────────────────────────────────────────

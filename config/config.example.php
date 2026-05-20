@@ -55,3 +55,9 @@ define('DRY_RUN_MODE', false); // true면 Marketo POST/DELETE 호출 no-op + 로
 // Slack incoming webhook URL. 빈 문자열이면 알림 비활성(개발 환경에서는 stdout로만 폴백).
 // needs_manual_review 전이/연속 실패/Bulk 지연 등 HARNESS §C3 트리거가 사용.
 define('SLACK_WEBHOOK_URL', '');
+
+// ── Sprint 3 INFRA — 로그 포맷 토글 ──────────────────────────
+// 'text' (기본): 기존 사람-친화 stdout 포맷.
+// 'json'        : 한 줄당 1 JSON 객체(JSON Lines) — log shipper(Fluentd/Vector/Loki) 친화.
+// job_logs DB 적재는 영향 받지 않음.
+define('LOG_FORMAT', 'text');
