@@ -5,12 +5,79 @@ declare(strict_types=1);
 $method = $_SERVER['REQUEST_METHOD'];
 $params = $GLOBALS['route_params'] ?? [];
 $id     = $params['id'] ?? null;
+// index.php는 INFRA zone(동결)이라 새 라우트를 추가하지 않고 query param으로 분기.
+//   GET /api/segments/{id}?action=cohort&limit=5 → cohort 추세 응답
+$query_action = $_GET['action'] ?? null;
 
 try {
     // GET /api/segments — 목록
     if ($method === 'GET' && !$id) {
         $rows = DB::all('SELECT * FROM segments ORDER BY created_at DESC');
         json_ok($rows);
+    }
+
+    // GET /api/segments/{id}?action=cohort&limit=N — Sprint 2 DB (안정 API)
+    // 같은 segment의 최근 sent 회차 추세(limit 기본 5, 최대 20).
+    elseif ($method === 'GET' && $id && $query_action === 'cohort') {
+        $exists = DB::one('SELECT id FROM segments WHERE id = ?', [$id]);
+        if (!$exists) json_err('세그먼트를 찾을 수 없습니다.', 404);
+
+        $limit = (int)($_GET['limit'] ?? 5);
+        if ($limit < 1)  $limit = 5;
+        if ($limit > 20) $limit = 20;
+
+        $rows = DB::all(
+            'SELECT id, name, send_time, lead_count, sent_count, delivered_count, bounce_count
+               FROM campaigns
+              WHERE segment_id = ? AND status = ?
+              ORDER BY send_time DESC
+              LIMIT ' . $limit,
+            [$id, 'sent']
+        );
+
+        $campaigns = array_map('compute_cohort_stats', $rows);
+
+        // 평균: 캠페인이 없으면 0.0
+        $n = count($campaigns);
+        if ($n === 0) {
+            $avg_cov = 0.0;
+            $avg_del = 0.0;
+            $trend   = 'flat';
+        } else {
+            $sum_cov = 0.0;
+            $sum_del = 0.0;
+            foreach ($campaigns as $c) {
+                $sum_cov += (float)$c['coverage_pct'];
+                $sum_del += (float)$c['delivery_rate_pct'];
+            }
+            $avg_cov = round($sum_cov / $n, 2);
+            $avg_del = round($sum_del / $n, 2);
+
+            // 추세: 최신순 배열에서 최근 2건 평균 vs 그 이전 평균.
+            // n<3이면 의미있는 비교 불가 → 'flat'.
+            // delivery_rate_pct 기준 (전달율이 코호트 품질 1순위 지표).
+            if ($n < 3) {
+                $trend = 'flat';
+            } else {
+                $recent_avg = ($campaigns[0]['delivery_rate_pct'] + $campaigns[1]['delivery_rate_pct']) / 2;
+                $prior_sum  = 0.0;
+                for ($i = 2; $i < $n; $i++) {
+                    $prior_sum += (float)$campaigns[$i]['delivery_rate_pct'];
+                }
+                $prior_avg = $prior_sum / ($n - 2);
+                $diff      = $recent_avg - $prior_avg;
+                if (abs($diff) <= 2.0)      $trend = 'flat';
+                elseif ($diff > 0)          $trend = 'up';
+                else                        $trend = 'down';
+            }
+        }
+
+        json_ok([
+            'campaigns'             => $campaigns,
+            'avg_coverage_pct'      => $avg_cov,
+            'avg_delivery_rate_pct' => $avg_del,
+            'trend'                 => $trend,
+        ]);
     }
 
     // GET /api/segments/{id}

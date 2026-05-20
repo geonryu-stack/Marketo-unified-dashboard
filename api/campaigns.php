@@ -28,6 +28,28 @@ try {
         json_ok(DB::all('SELECT * FROM job_logs WHERE campaign_id=? ORDER BY created_at ASC', [$id]));
     }
 
+    // GET /api/campaigns/{id}/previous-cohort — Sprint 2 DB (안정 API)
+    // 본 캠페인의 같은 segment 내 직전 sent 회차 1건을 요약 반환. 없으면 previous: null.
+    elseif ($method === 'GET' && $id && $action === 'previous-cohort') {
+        $row = DB::one(
+            'SELECT c2.id, c2.name, c2.send_time,
+                    c2.lead_count, c2.sent_count, c2.delivered_count, c2.bounce_count
+               FROM campaigns c1
+               JOIN campaigns c2 ON c2.segment_id = c1.segment_id
+              WHERE c1.id = ?
+                AND c2.id != c1.id
+                AND c2.status = ?
+                AND c2.created_at < c1.created_at
+              ORDER BY c2.created_at DESC
+              LIMIT 1',
+            [$id, 'sent']
+        );
+        if (!$row) {
+            json_ok(['previous' => null]);
+        }
+        json_ok(['previous' => compute_cohort_stats($row)]);
+    }
+
     // GET /api/campaigns/{id}/delivery-result
     elseif ($method === 'GET' && $id && $action === 'delivery-result') {
         $row = DB::one(

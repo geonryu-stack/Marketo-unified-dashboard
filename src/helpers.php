@@ -512,6 +512,38 @@ function screenshot_save(string $tmp_path, string $campaign_id, string $original
     return $rel_path;
 }
 
+// ── Sprint 2 DB: 코호트 통계 계산 헬퍼 (C-COHORT) ────────────────
+// 안정 API 시그니처 (시그니처 동결):
+//   compute_cohort_stats(array $row): array
+//     입력: campaigns 1행(연관배열). lead_count, sent_count, delivered_count, bounce_count 필수.
+//     반환: 입력 + coverage_pct, delivery_rate_pct 두 키 부가.
+//
+// 순수 함수 — DB 접근 없음. previous-cohort / cohort 응답 매핑 시 동일 식으로 사용.
+//   coverage_pct       = sent_count / lead_count   (lead_count=0 → 0)
+//   delivery_rate_pct  = delivered_count / sent_count (sent_count=0 → 0)
+//
+// 반환 행은 PHP json_encode → 클라이언트에서 .toFixed(2) 등 가공 가능하도록 float 으로 둔다.
+
+/**
+ * 캠페인 한 행에서 coverage_pct / delivery_rate_pct 를 계산해 추가한다.
+ *
+ * @param array $row campaigns 한 행. 최소 lead_count, sent_count, delivered_count, bounce_count 포함.
+ * @return array     입력 키 모두 보존 + coverage_pct / delivery_rate_pct 추가.
+ */
+function compute_cohort_stats(array $row): array
+{
+    $lead      = (int)($row['lead_count']      ?? 0);
+    $sent      = (int)($row['sent_count']      ?? 0);
+    $delivered = (int)($row['delivered_count'] ?? 0);
+
+    $coverage      = $lead > 0 ? round(($sent      / $lead) * 100, 2) : 0.0;
+    $delivery_rate = $sent > 0 ? round(($delivered / $sent) * 100, 2) : 0.0;
+
+    $row['coverage_pct']      = $coverage;
+    $row['delivery_rate_pct'] = $delivery_rate;
+    return $row;
+}
+
 // ── Sprint 1 INFRA: status_history 적재 ───────────────────────────
 // 안정 API 시그니처 (시그니처 동결):
 //   record_status_transition(campaign_id, from, to, actor='system', notes=null, run_id=null): void
