@@ -464,4 +464,63 @@ class MarketoAPI
         );
         return $data['result'] ?? [];
     }
+
+    // ── Email Program 스냅샷 (C-SCHEDULE-ECHO / EP 미러링용) ────────
+    /**
+     * Email Program의 현재 상태 스냅샷.
+     * 두 개의 GET API를 결합해 정제된 응답을 돌려준다 (모두 재시도 안전).
+     *
+     *  - GET /asset/v1/emailProgram/{id}.json          → name, status
+     *  - GET /asset/v1/emailProgram/{id}/schedule.json → scheduledAt, recipientTimeZone
+     *
+     * schedule이 비어있는(=미예약) Email Program도 정상 동작:
+     *  - scheduledAt = null
+     *  - recipientTimeZone = false
+     *
+     * @return array{id:int, name:string, status:string, scheduledAt:?string, recipientTimeZone:bool}
+     */
+    public static function getEmailProgramSnapshot(int $epId): array
+    {
+        $program  = self::curl('GET',
+            MARKETO_REST_URL . "/asset/v1/emailProgram/$epId.json",
+            self::authHeaders()
+        );
+        $schedule = self::getEmailProgramScheduleSafe($epId);
+        return self::buildEpSnapshot($epId, $program, $schedule);
+    }
+
+    /**
+     * schedule API는 미예약 EP에 대해 errors를 반환할 수 있다.
+     * 그 경우 'no schedule' 의미로 빈 array를 돌려주어 호출자가 안전하게 처리하도록 함.
+     */
+    private static function getEmailProgramScheduleSafe(int $epId): array
+    {
+        $data = self::curlRaw('GET',
+            MARKETO_REST_URL . "/asset/v1/emailProgram/$epId/schedule.json",
+            self::authHeaders()
+        );
+        if (!empty($data['errors'])) {
+            // 미예약 / draft 상태에서 schedule 조회 시 발생할 수 있는 정상 분기
+            return [];
+        }
+        return $data;
+    }
+
+    /**
+     * EP 스냅샷 정제 — 순수 로직(테스트 가능).
+     * Marketo 응답에서 필요한 필드만 추출해 안정 키로 변환한다.
+     */
+    public static function buildEpSnapshot(int $epId, array $program, array $schedule): array
+    {
+        $row = $program['result'][0] ?? [];
+        $sched = $schedule['result'][0] ?? [];
+        return [
+            'id'                => $epId,
+            'name'              => (string)($row['name']   ?? ''),
+            'status'            => (string)($row['status'] ?? 'draft'),
+            'scheduledAt'       => isset($sched['scheduledAt']) && $sched['scheduledAt'] !== ''
+                                     ? (string)$sched['scheduledAt'] : null,
+            'recipientTimeZone' => !empty($sched['recipientTimeZone']),
+        ];
+    }
 }

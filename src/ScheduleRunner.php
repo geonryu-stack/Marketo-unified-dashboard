@@ -224,6 +224,15 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
         $log('schedule_ep', 'running', "Email Program({$ep_id}) RTZ 예약: {$send_dt}");
         MarketoAPI::scheduleEmailProgram($ep_id, $send_dt);
 
+        // ── C-SCHEDULE-ECHO (CRITICS.md §2 ★★☆) ───────────────────
+        // scheduleEmailProgram 호출 직후 GET으로 재확인.
+        // Marketo가 200을 반환했지만 실제로는 예약이 반영되지 않은 silent failure를 탐지.
+        //
+        // 위험구간(unapprove + scheduleEmailProgram 이미 실행) **안**에서 발생하므로
+        // 실패 시 CampaignNeedsReviewException으로 격리. (C-TOKEN-VERIFY는 위험구간
+        // 진입 **전**이라 일반 RuntimeException — 두 패턴을 혼동하지 말 것.)
+        verify_schedule_echo($id, $ep_id, $send_dt, $log);
+
         DB::exec(
             "UPDATE campaigns SET status='scheduled', updated_at=? WHERE id=?",
             [now_str(), $id]
@@ -240,4 +249,48 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
         );
         throw new CampaignNeedsReviewException($err);
     }
+}
+
+/**
+ * C-SCHEDULE-ECHO (CRITICS.md §2 ★★☆) — scheduleEmailProgram 직후 echo-back.
+ *
+ * 기대값($send_dt)과 Marketo가 echo한 scheduledAt이 분 단위로 일치하고
+ * status가 'scheduled'인지 확인. 불일치 시:
+ *   - status='needs_manual_review'로 격리
+ *   - CampaignNeedsReviewException throw → 호출자 catch에서 sibling 차단 유지
+ *
+ * 시간 비교는 절대값 60초 윈도 — Marketo가 응답 시 timezone offset(±0000)이
+ * 다른 표기로 돌아올 수 있어 분 단위로 동일하면 통과시킨다.
+ */
+function verify_schedule_echo(int $campaign_id, int $ep_id, string $expected_send_dt, callable $log): void
+{
+    $log('verify_schedule', 'running', "C-SCHEDULE-ECHO 시작 (EP $ep_id, expected $expected_send_dt)");
+    $snap = MarketoAPI::getEmailProgramSnapshot($ep_id);
+
+    $actual_at = $snap['scheduledAt'] ?? null;
+    $status    = $snap['status'] ?? '';
+
+    $expected_ts = strtotime($expected_send_dt) ?: 0;
+    $actual_ts   = $actual_at ? (strtotime($actual_at) ?: 0) : 0;
+    $diff        = ($expected_ts && $actual_ts) ? abs($expected_ts - $actual_ts) : PHP_INT_MAX;
+
+    $ok = ($status === 'scheduled') && ($actual_ts > 0) && ($diff <= 60);
+
+    if (!$ok) {
+        $err = "C-SCHEDULE-ECHO 실패: expected scheduledAt={$expected_send_dt} "
+             . 'actual=' . ($actual_at ?? 'null')
+             . " status={$status} (diff={$diff}s). "
+             . 'Marketo가 예약 응답을 200으로 돌려줬지만 실제 상태가 일치하지 않습니다. '
+             . 'Marketo UI에서 EP 상태와 예약 시각을 직접 확인 후 캠페인 상태를 조정하세요.';
+        DB::exec(
+            "UPDATE campaigns SET status='needs_manual_review', error_message=?, updated_at=? WHERE id=?",
+            [$err, now_str(), $campaign_id]
+        );
+        $log('verify_schedule', 'error',
+            "C-SCHEDULE-ECHO 실패: expected scheduledAt={$expected_send_dt} "
+            . 'actual=' . ($actual_at ?? 'null') . " status={$status}");
+        throw new CampaignNeedsReviewException($err);
+    }
+
+    $log('verify_schedule', 'done', 'C-SCHEDULE-ECHO 통과');
 }
