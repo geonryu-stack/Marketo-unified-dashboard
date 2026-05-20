@@ -1,16 +1,40 @@
 <?php
 // pages/campaigns/index.php
-$title     = '캠페인';
-$filter    = $_GET['filter'] ?? '';
-$where     = $filter === 'awaiting_approval' ? "WHERE status='awaiting_approval'" : '';
-$campaigns = DB::all("SELECT * FROM campaigns {$where} ORDER BY created_at DESC");
-$pending   = (int)(DB::one("SELECT COUNT(*) AS n FROM campaigns WHERE status='awaiting_approval'")['n'] ?? 0);
+$title  = '캠페인';
+$filter = $_GET['filter'] ?? '';
+
+// 지원 필터: awaiting_approval, needs_manual_review
+$where = '';
+if ($filter === 'awaiting_approval') {
+    $where = "WHERE status='awaiting_approval'";
+} elseif ($filter === 'needs_manual_review') {
+    $where = "WHERE status='needs_manual_review'";
+}
+
+$campaigns    = DB::all("SELECT * FROM campaigns {$where} ORDER BY created_at DESC");
+$pending      = (int)(DB::one("SELECT COUNT(*) AS n FROM campaigns WHERE status='awaiting_approval'")['n'] ?? 0);
+$needs_review = (int)(DB::one("SELECT COUNT(*) AS n FROM campaigns WHERE status='needs_manual_review'")['n'] ?? 0);
 include __DIR__ . '/../layout_header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2>캠페인<?php if ($filter === 'awaiting_approval'): ?> <small class="text-muted">— 결재 대기만 보기</small><?php endif; ?></h2>
+  <h2>캠페인
+    <?php if ($filter === 'awaiting_approval'): ?> <small class="text-muted">— 결재 대기만 보기</small>
+    <?php elseif ($filter === 'needs_manual_review'): ?> <small class="text-muted">— 수동 검토 필요만 보기</small>
+    <?php endif; ?>
+  </h2>
   <a href="<?= APP_URL ?>/campaigns/new" class="btn btn-primary">+ 새 캠페인</a>
 </div>
+
+<?php if ($needs_review > 0): /* 빨강 배너 — 격리 큐 (최우선) */ ?>
+<div class="alert alert-danger d-flex justify-content-between align-items-center mb-3">
+  <span>⚠️ <strong>수동 검토 필요 캠페인 <?= $needs_review ?>건</strong> — Marketo EP 상태를 확인하고 'scheduled' 또는 'failed'로 해제하세요.</span>
+  <?php if ($filter === 'needs_manual_review'): ?>
+    <a href="<?= APP_URL ?>/campaigns" class="btn btn-sm btn-outline-light">전체 보기</a>
+  <?php else: ?>
+    <a href="<?= APP_URL ?>/campaigns?filter=needs_manual_review" class="btn btn-sm btn-light">수동 검토만 보기 →</a>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <?php if ($pending > 0): ?>
 <div class="alert alert-warning d-flex justify-content-between align-items-center mb-3">
@@ -29,7 +53,12 @@ include __DIR__ . '/../layout_header.php';
   </tr></thead>
   <tbody>
   <?php foreach ($campaigns as $c): ?>
-    <tr<?= $c['status'] === 'awaiting_approval' ? ' class="table-warning"' : '' ?>>
+    <?php
+      $row_cls = '';
+      if ($c['status'] === 'needs_manual_review')   $row_cls = ' class="table-danger"';
+      elseif ($c['status'] === 'awaiting_approval') $row_cls = ' class="table-warning"';
+    ?>
+    <tr<?= $row_cls ?>>
       <td><a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></a></td>
       <td><?= htmlspecialchars($c['segment_name']) ?></td>
       <td><?= $c['send_time'] ? substr($c['send_time'], 0, 16) : '-' ?></td>

@@ -249,6 +249,17 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
             "UPDATE campaigns SET status='scheduled', updated_at=? WHERE id=?",
             [now_str(), $id]
         );
+        // 상태 전이 적재 — from은 진입 시 상태 (scheduling | bulk_finalizing)
+        $from_status = $c['status'] ?? null;
+        $actor       = ($from_status === 'bulk_finalizing') ? 'cron' : 'system';
+        record_status_transition(
+            (string)$id,
+            $from_status,
+            'scheduled',
+            $actor,
+            "EP({$ep_id}) RTZ 예약: {$send_dt}",
+            $c['run_id'] ?? null
+        );
         $log('schedule_ep', 'done', "Email Program({$ep_id}) 예약 완료: {$send_dt}");
     } catch (Throwable $e) {
         $err = "EP({$ep_id}) 변경 도중 실패 — Marketo 측 상태 불확실: " . $e->getMessage()
@@ -259,6 +270,19 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
             "UPDATE campaigns SET status='needs_manual_review', error_message=?, updated_at=? WHERE id=?",
             [$err, now_str(), $id]
         );
+        // 상태 전이 적재 — 격리 분기
+        $from_status = $c['status'] ?? null;
+        $actor       = ($from_status === 'bulk_finalizing') ? 'cron' : 'system';
+        record_status_transition(
+            (string)$id,
+            $from_status,
+            'needs_manual_review',
+            $actor,
+            $err,
+            $c['run_id'] ?? null
+        );
+        // Slack 알림 — throw하지 않음(본업 방해 금지). 호출 직전 throw 시점에 한번만.
+        Notifier::slack("⚠️ 캠페인 [{$c['name']}] needs_manual_review — {$err}", 'critical');
         throw new CampaignNeedsReviewException($err);
     }
 }

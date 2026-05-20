@@ -169,6 +169,7 @@ try {
                 ['scheduling', now_str(), now_str(), $id]
             );
             $db->commit();
+            record_status_transition((string)$id, 'awaiting_approval', 'scheduling', 'user', '운영자 승인');
         } catch (Throwable $e) {
             if ($db->inTransaction()) $db->rollBack();
             json_err($e->getMessage(), 500);
@@ -214,6 +215,7 @@ try {
         if ($affected !== 1) {
             json_err('상태가 이미 변경되었습니다. 페이지를 새로고침 후 확인하세요.', 409);
         }
+        record_status_transition((string)$id, 'awaiting_approval', 'draft', 'user', '운영자 거절' . ($memo !== '' ? " (메모: {$memo})" : ''));
         add_log($id, 'reject', 'done', '운영자 거절' . ($memo !== '' ? " (메모: {$memo})" : ''));
         json_ok(['rejected' => true]);
     }
@@ -261,6 +263,13 @@ try {
         if ($affected !== 1) {
             json_err('상태가 이미 변경되었습니다. 페이지를 새로고침 후 확인하세요.', 409);
         }
+        record_status_transition(
+            (string)$id,
+            'needs_manual_review',
+            $as,
+            'user',
+            "운영자 결정: {$as}" . ($note !== '' ? " ({$note})" : '')
+        );
         add_log($id, 'resolve_review', 'done', "운영자 결정: {$as}" . ($note !== '' ? " ({$note})" : ''));
         json_ok(['status' => $as]);
     }
@@ -283,6 +292,7 @@ try {
         MarketoAPI::unapproveEmailProgram((int)$c['marketo_email_program_id']);
         DB::exec('UPDATE campaigns SET status=?, marketo_email_program_id=NULL, updated_at=? WHERE id=?',
             ['awaiting_approval', now_str(), $id]);
+        record_status_transition((string)$id, 'scheduled', 'awaiting_approval', 'user', '운영자 예약 취소 (EP unapprove)');
         json_ok(['cancelled' => true]);
     }
 

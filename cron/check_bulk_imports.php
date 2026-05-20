@@ -55,6 +55,7 @@ foreach ($due as $c) {
                 "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
                 [$msg, now_str(), $id]
             );
+            record_status_transition((string)$id, 'bulk_polling', 'failed', 'cron', $msg, $c['run_id'] ?? null);
             job_log($msg, $id, 'bulk_submit', 'error');
             job_log("    → failed");
             continue;
@@ -71,6 +72,7 @@ foreach ($due as $c) {
                     "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
                     [$msg, now_str(), $id]
                 );
+                record_status_transition((string)$id, 'bulk_polling', 'failed', 'cron', $msg, $c['run_id'] ?? null);
                 job_log($msg, $id, 'bulk_submit', 'error');
                 job_log("    → failed (부분 실패 {$failed}명)");
                 continue;
@@ -88,6 +90,7 @@ foreach ($due as $c) {
                 job_log("    ⚠ 다른 cron이 이미 처리 중 (status가 bulk_polling이 아님) — 건너뜀");
                 continue;
             }
+            record_status_transition((string)$id, 'bulk_polling', 'bulk_finalizing', 'cron', 'Bulk Import Complete', $c['run_id'] ?? null);
             job_log("Bulk Import 완료 (errors={$err_count}, failed=0)", $id, 'bulk_submit', 'done');
 
             $seg = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id']]);
@@ -97,6 +100,7 @@ foreach ($due as $c) {
                     "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
                     [$err, now_str(), $id]
                 );
+                record_status_transition((string)$id, 'bulk_finalizing', 'failed', 'cron', $err, $c['run_id'] ?? null);
                 job_log($err, $id, 'schedule_ep', 'error');
                 job_log("    ✗ {$err}");
                 continue;
@@ -112,6 +116,9 @@ foreach ($due as $c) {
             } catch (CampaignNeedsReviewException $e) {
                 // EP 변경 도중 실패 — finalize_campaign_schedule이 이미 'needs_manual_review' 설정.
                 // 'failed'로 덮어쓰지 않음 (sibling 차단 효과 보존).
+                // Slack 알림은 finalize_campaign_schedule() 내부에서 throw 직전에 이미 발사됐지만,
+                // 만일을 위해 cron 분기에서도 재발사 (Notifier가 dedupe/throttle 책임).
+                Notifier::slack("⚠️ 캠페인 [{$c['name']}] needs_manual_review — " . $e->getMessage(), 'critical');
                 job_log($e->getMessage(), $id, 'schedule_ep', 'error');
                 job_log("    ✗ NEEDS_REVIEW: " . $e->getMessage());
             } catch (Throwable $e) {
@@ -121,6 +128,7 @@ foreach ($due as $c) {
                     "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
                     [$err, now_str(), $id]
                 );
+                record_status_transition((string)$id, 'bulk_finalizing', 'failed', 'cron', $err, $c['run_id'] ?? null);
                 job_log($err, $id, 'schedule_ep', 'error');
                 job_log("    ✗ {$err}");
             }

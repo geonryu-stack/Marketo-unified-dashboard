@@ -37,6 +37,13 @@ foreach ($candidates as $c) {
         [$now, $now, $now, $c['id']]
     );
     if ($affected === 1) {
+        record_status_transition(
+            (string)$c['id'],
+            'scheduled',
+            'sent',
+            'cron',
+            "send_time({$c['send_time']}) + 30m 경과로 자동 전환"
+        );
         job_log("  sent 전환 + polling 시작: {$c['name']} (send_time: {$c['send_time']})");
         $transitioned++;
     }
