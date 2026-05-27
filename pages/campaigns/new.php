@@ -43,7 +43,7 @@ include __DIR__ . '/../layout_header.php';
       </div>
 
       <div class="mb-3">
-        <label class="form-label">이메일 에셋 *
+        <label class="form-label">이메일 에셋 (수동 교체 기준) *
           <span class="text-muted fw-normal small">(Library Program ID: <?= $email_lib_program_id ?>)</span>
         </label>
         <select class="form-select" name="marketo_cloned_email_id" id="email-asset-select" required>
@@ -52,6 +52,18 @@ include __DIR__ . '/../layout_header.php';
         <div class="form-text" id="email-asset-count"></div>
         <input type="hidden" name="asset_name" id="asset-name-input"
                value="<?= htmlspecialchars($clone_data['asset_name'] ?? '') ?>">
+        <div class="alert alert-warning small mt-2 mb-0">
+          ⚠️ <strong>본 시스템은 이메일 자산을 자동 교체하지 못합니다 (Marketo Smart Campaign Flow API 한계).</strong><br>
+          본 입력값은 *발송 전 운영자가 Marketo UI 에서 직접 교체할 자산명의 기준* 으로만 사용됩니다.
+          반드시 다음 절차를 거치셔야 합니다:
+          <ol class="mb-0 mt-1 small">
+            <li>Marketo → Marketing Activities → <code>DUC Automation Programs</code> → 해당 발송 Program (예: <code>Active-A Email Program</code>) 펼치기</li>
+            <li>그 안의 Smart Campaign (예: <code>ActiveA_Autosend</code>) → <strong>Flow</strong> 탭</li>
+            <li><strong>Send Email</strong> 스텝의 이메일 자산을 위에서 선택한 자산으로 직접 교체</li>
+            <li>본 시스템 결재 카드에서 "Marketo UI 에서 발송 Program 의 실제 이메일 에셋이 동일한지 직접 확인" 체크 필수</li>
+          </ol>
+          <small class="text-muted">발송 직후 시스템이 Activity API 로 실제 발송 자산명을 검증해 불일치 시 자동 격리합니다 (RC#2-B2).</small>
+        </div>
       </div>
 
       <hr class="my-4">

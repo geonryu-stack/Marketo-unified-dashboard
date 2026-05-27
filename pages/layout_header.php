@@ -25,6 +25,12 @@ $page_title = ($title ?? 'Marketo Automation') . ' — Marketo Automation';
          href="<?= APP_URL ?>/schedules">발송 스케줄</a>
       <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/calendar')) ? 'active fw-bold' : '' ?>"
          href="<?= APP_URL ?>/calendar">캘린더</a>
+      <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/dashboard/results')) ? 'active fw-bold' : '' ?>"
+         href="<?= APP_URL ?>/dashboard/results">발송 결과</a>
+      <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/marketo-usage')) ? 'active fw-bold' : '' ?>"
+         href="<?= APP_URL ?>/marketo-usage">API 사용량</a>
+      <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/isolation-queue')) ? 'active fw-bold' : '' ?>"
+         href="<?= APP_URL ?>/isolation-queue">격리 큐</a>
     </div>
   </div>
 </nav>

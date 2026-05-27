@@ -396,18 +396,46 @@ async function previewSample() {
   }
 }
 
+// multi-select 의 선택된 값을 배열로 추출하는 작은 헬퍼.
+// 셀렉터에 매칭되는 요소가 없거나 빈 값이면 빈 배열 반환.
+function _collectSelectedValues(form, selector) {
+  const el = form.querySelector(selector);
+  if (!el) return [];
+  return Array.from(el.selectedOptions).map(o => o.value).filter(v => v);
+}
+
+// cap 입력값 클램프 — 빈 문자열 → fallback. 음수·NaN → null (호출자가 alert).
+function _clampCap(raw, fallback) {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 9999) return null;
+  return n;
+}
+
 // 폼 제출
 document.getElementById('segment-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
+  // cap 필드 — DOM 부재(레거시 페이지) 대비 optional chaining + 음수·NaN 클램프.
+  const capDay  = _clampCap(form.cap_per_day?.value,  1);
+  const capWeek = _clampCap(form.cap_per_week?.value, 7);
+  const capPri  = _clampCap(form.cap_priority?.value, 100);
+  if (capDay === null || capWeek === null || capPri === null) {
+    alert('발송 빈도 cap 값은 0 이상 9999 이하의 정수여야 합니다.');
+    return;
+  }
   const body = {
     name:                      form.name.value,
     description:               form.description.value,
     filters:                   _currentFiltersPayload(),
+    suppresses_segment_ids:    _collectSelectedValues(form, '#suppresses-segment-ids'),
     marketo_program_id:        form.marketo_program_id.value,
     marketo_audience_list_id:  form.marketo_audience_list_id.value,
     marketo_email_program_id:  form.marketo_email_program_id.value,
     is_recurring:              form.is_recurring.checked ? 1 : 0,
+    cap_per_day:               capDay,
+    cap_per_week:              capWeek,
+    cap_priority:              capPri,
     send_day_of_week:          parseInt(form.send_day_of_week.value),
     recurring_send_time:       form.recurring_send_time.value,
   };

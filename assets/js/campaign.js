@@ -19,7 +19,7 @@ const campaign = {
     const boxes = document.querySelectorAll('.approval-check');
     const allChecked = Array.from(boxes).every(b => b.checked);
     if (!allChecked) {
-      alert('체크리스트 4개를 모두 확인해야 승인할 수 있습니다.');
+      alert('체크리스트 항목을 모두 확인해야 승인할 수 있습니다. (Marketo UI 직접 검증 항목 포함)');
       return;
     }
 
@@ -31,8 +31,24 @@ const campaign = {
     const progress = campaign._showProgressModal();
     const pollTimer = setInterval(loadLogs, 1500);
 
+    // 서버측 강제 게이트(SEV1 RCA 2026-05-22) — 각 체크 항목의 통과 신호를 명시 전달.
+    // 서버는 6개 키가 모두 true 일 때만 통과. DOM 우회·직접 fetch 호출에서도 동작.
+    const _val = (id) => !!document.getElementById(id)?.checked;
+    const confirmations = {
+      tokens:         _val('chk-tokens'),
+      sendtime:       _val('chk-sendtime'),
+      leadcount:      _val('chk-leadcount'),
+      testmail:       _val('chk-testmail'),
+      marketo_asset:  _val('chk-marketo-asset'),
+      marketo_tokens: _val('chk-marketo-tokens'),
+    };
+
     try {
-      const res  = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}/approve`, { method: 'POST' });
+      const res  = await fetch(`${APP_URL}/api/campaigns/${CAMPAIGN_ID}/approve`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ confirmations }),
+      });
       const data = await res.json();
       clearInterval(pollTimer);
 
@@ -145,9 +161,52 @@ const campaign = {
     else alert(data.error || '오류가 발생했습니다.');
   },
 
-  cancel() {
-    if (confirm('Marketo 예약을 취소하시겠습니까?\n취소 후 캠페인은 결재 대기 상태로 돌아갑니다.'))
-      this._action('cancel');
+  // SC cancel 처리 — 2단계 흐름:
+  //  1) acknowledge_sent 없이 POST → 서버가 이미 sent 박제된 행 존재 시 409 + requires_acknowledgement=true
+  //  2) 운영자에게 "이미 N명이 받았음" confirm 표시 후 acknowledge_sent=true 로 재요청
+  // 서버 단독 게이트(api/campaigns.php H-3)는 *bypass 불가* 인데 UI 가 처리 못 하면 운영자가 영원히
+  // cancel 못 함 → 본 UI 코드 누락 시 게이트가 사실상 unreachable (Codex stop-time review 지적).
+  async cancel() {
+    if (!confirm('Marketo 예약을 취소하시겠습니까?\n취소 후 캠페인은 결재 대기 상태로 돌아갑니다.\n\n' +
+                 '※ Smart Campaign 모드의 경우, Marketo 발송 자체는 +2년 후로 reschedule 되며 ' +
+                 '운영자가 Marketo UI 에서 schedule 을 직접 제거하는 것을 권장합니다.')) return;
+
+    const url = `${APP_URL}/api/campaigns/${CAMPAIGN_ID}/cancel`;
+    // 1차 시도 — acknowledge_sent 없이
+    let res  = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({}),
+    });
+    let data = await res.json();
+
+    // 409 + requires_acknowledgement → 운영자에게 이미 sent 된 인원 명시 + 재확인
+    if (res.status === 409 && data?.requires_acknowledgement) {
+      const sent_n = data.already_sent_count ?? 0;
+      const proceed = confirm(
+        `⚠ 이미 ${sent_n.toLocaleString()}명이 본 캠페인 이메일을 받았습니다.\n\n` +
+        `cancel 은 *남은 발송* 만 중지하며, 이미 발송된 이메일은 회수할 수 없습니다.\n` +
+        `계속 진행하시겠습니까?`
+      );
+      if (!proceed) return;
+
+      res  = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ acknowledge_sent: true }),
+      });
+      data = await res.json();
+    }
+
+    if (data?.success) {
+      // SC 모드 reschedule 안내 — alert 후 reload
+      if (data.data?.manual_action_required) {
+        alert('✅ 예약 취소 완료.\n\n' + data.data.manual_action_required);
+      }
+      location.reload();
+    } else {
+      alert(data?.error || '취소 처리 중 오류가 발생했습니다.');
+    }
   },
 
   async duplicate() {
@@ -1162,3 +1221,55 @@ document.addEventListener('DOMContentLoaded', () => {
     if (segSel.value) loadLatestTokensForSegment(segSel.value);
   }
 });
+
+// ── G2: 캠페인 status 변화 자동 감지 (5초 주기 폴링) ─────────────
+// 진행 중 상태(scheduling/bulk_*/polling)일 때만 폴링.
+// status 가 바뀌면 토스트 + 페이지 상단에 새로고침 안내 배너 표시.
+// 페이지 떠나거나 종료 상태(scheduled/sent/failed/done)면 자동 정리.
+(function() {
+  if (typeof CAMPAIGN_ID === 'undefined' || typeof CAMPAIGN_STATUS === 'undefined') return;
+
+  const IN_PROGRESS = ['scheduling', 'bulk_polling', 'bulk_finalizing'];
+  if (!IN_PROGRESS.includes(CAMPAIGN_STATUS)) return;
+
+  let lastKnown = CAMPAIGN_STATUS;
+  let timer = null;
+
+  function showStatusChangeBanner(newStatus) {
+    // 이미 배너가 있으면 중복 생성 방지
+    if (document.getElementById('status-change-banner')) return;
+    const div = document.createElement('div');
+    div.id = 'status-change-banner';
+    div.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3 shadow-lg';
+    div.style.zIndex = '2000';
+    div.style.minWidth = '420px';
+    div.innerHTML = `
+      <strong>✅ 상태 변경 감지</strong> — <code>${lastKnown}</code> → <code>${newStatus}</code>
+      <button type="button" class="btn btn-sm btn-light ms-3" onclick="location.reload()">🔄 새로고침</button>
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(div);
+  }
+
+  async function poll() {
+    try {
+      const res  = await fetch(`${APP_URL}/api/campaigns/${encodeURIComponent(CAMPAIGN_ID)}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const cur  = json.data && json.data.status;
+      if (!cur) return;
+      if (cur !== lastKnown) {
+        showStatusChangeBanner(cur);
+        lastKnown = cur;
+        // 종료 상태면 폴링 종료
+        if (!IN_PROGRESS.includes(cur)) {
+          clearInterval(timer);
+        }
+      }
+    } catch (e) { /* silently */ }
+  }
+
+  timer = setInterval(poll, 5000);
+  // 페이지 떠날 때 정리
+  window.addEventListener('beforeunload', () => clearInterval(timer));
+})();

@@ -1,11 +1,11 @@
 <?php
 // pages/segments/index.php
 $title   = '세그먼트';
-$segments = DB::all('SELECT * FROM segments ORDER BY created_at DESC');
+$segments = DB::all('SELECT * FROM segments ORDER BY created_at DESC LIMIT 10');
 include __DIR__ . '/../layout_header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2>세그먼트</h2>
+  <h2>세그먼트 <small class="text-muted fs-6">— 최근 10개</small></h2>
   <a href="<?= APP_URL ?>/segments/new" class="btn btn-primary">+ 새 세그먼트</a>
 </div>
 <table class="table table-hover bg-white">

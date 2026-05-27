@@ -11,15 +11,16 @@ if ($filter === 'awaiting_approval') {
     $where = "WHERE status='needs_manual_review'";
 }
 
-$campaigns    = DB::all("SELECT * FROM campaigns {$where} ORDER BY created_at DESC");
+$campaigns    = DB::all("SELECT * FROM campaigns {$where} ORDER BY created_at DESC LIMIT 10");
 $pending      = (int)(DB::one("SELECT COUNT(*) AS n FROM campaigns WHERE status='awaiting_approval'")['n'] ?? 0);
 $needs_review = (int)(DB::one("SELECT COUNT(*) AS n FROM campaigns WHERE status='needs_manual_review'")['n'] ?? 0);
 include __DIR__ . '/../layout_header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>캠페인
-    <?php if ($filter === 'awaiting_approval'): ?> <small class="text-muted">— 결재 대기만 보기</small>
-    <?php elseif ($filter === 'needs_manual_review'): ?> <small class="text-muted">— 수동 검토 필요만 보기</small>
+    <?php if ($filter === 'awaiting_approval'): ?> <small class="text-muted fs-6">— 결재 대기만 보기 · 최근 10개</small>
+    <?php elseif ($filter === 'needs_manual_review'): ?> <small class="text-muted fs-6">— 수동 검토 필요만 보기 · 최근 10개</small>
+    <?php else: ?> <small class="text-muted fs-6">— 최근 10개</small>
     <?php endif; ?>
   </h2>
   <a href="<?= APP_URL ?>/campaigns/new" class="btn btn-primary">+ 새 캠페인</a>
@@ -59,7 +60,12 @@ include __DIR__ . '/../layout_header.php';
       elseif ($c['status'] === 'awaiting_approval') $row_cls = ' class="table-warning"';
     ?>
     <tr<?= $row_cls ?>>
-      <td><a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></a></td>
+      <td>
+        <a href="<?= APP_URL ?>/campaigns/<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></a>
+        <?php if (!empty($c['asset_name'])): ?>
+          <span class="text-muted small">(<?= htmlspecialchars($c['asset_name']) ?>)</span>
+        <?php endif; ?>
+      </td>
       <td><?= htmlspecialchars($c['segment_name']) ?></td>
       <td><?= $c['send_time'] ? substr($c['send_time'], 0, 16) : '-' ?></td>
       <td><?= $c['lead_count'] > 0 ? number_format($c['lead_count']) . '명' : '-' ?></td>

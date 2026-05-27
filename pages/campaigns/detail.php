@@ -1,5 +1,8 @@
 <?php
 // pages/campaigns/detail.php — $id는 router에서 주입
+require_once __DIR__ . '/../../src/Suppression.php';
+require_once __DIR__ . '/../../src/SendCap.php';
+
 $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
 if (!$c) { header('Location: ' . APP_URL . '/campaigns'); exit; }
 $title   = '캠페인: ' . htmlspecialchars($c['name']);
@@ -15,6 +18,77 @@ $send_ts        = $c['send_time'] ? strtotime($c['send_time']) : 0;
 $hours_to_send  = $send_ts ? (int)round(($send_ts - time()) / 3600) : null;
 $is_overdue     = $hours_to_send !== null && $hours_to_send < 0;
 $is_urgent      = $hours_to_send !== null && $hours_to_send >= 0 && $hours_to_send <= 16;
+
+// G3 — VVIP suppression 영향 (양방향 정보)
+// 마이그레이션(vvip_suppression.sql) 미적용 환경에서도 페이지가 깨지지 않도록 try/catch 로 감싼다.
+// 컬럼/테이블 미존재 시 suppression 박스만 숨기고 나머지 캠페인 상세는 정상 렌더.
+$send_date             = Suppression::extractSendDate((string)($c['send_time'] ?? ''));
+$my_supp_targets       = [];
+$suppressed_targets    = [];
+$suppressors_on_day    = [];
+$suppress_total_emails = 0;
+$suppression_warning   = null;
+
+try {
+    $seg = DB::one('SELECT id, name, suppresses_segment_ids FROM segments WHERE id=?', [$c['segment_id']]);
+    $my_supp_targets = Suppression::decode($seg['suppresses_segment_ids'] ?? null);
+
+    // (a) 본 캠페인이 suppressor 인 경우 — 영향받는 같은 날 캠페인 조회
+    if ($send_date !== '' && !empty($my_supp_targets)) {
+        $seg_ph = implode(',', array_fill(0, count($my_supp_targets), '?'));
+        $st_ph  = implode(',', array_fill(0, count(Suppression::ACTIVE_STATES), '?'));
+        $params = array_merge($my_supp_targets, [$send_date], Suppression::ACTIVE_STATES);
+        $suppressed_targets = DB::all(
+            "SELECT id, name, segment_name, lead_count, status FROM campaigns
+              WHERE segment_id IN ($seg_ph)
+                AND DATE(send_time) = ?
+                AND status IN ($st_ph) AND id != ?
+              ORDER BY name",
+            array_merge($params, [$c['id']])
+        );
+    }
+
+    // (b) 본 캠페인이 피suppress 인 경우 — 같은 날 활성 suppressor 캠페인 조회
+    if ($send_date !== '' && $c['segment_id']) {
+        $rows = DB::all(
+            'SELECT id FROM segments WHERE JSON_CONTAINS(suppresses_segment_ids, JSON_QUOTE(?))',
+            [$c['segment_id']]
+        );
+        if (!empty($rows)) {
+            $sup_seg_ids = array_column($rows, 'id');
+            $seg_ph = implode(',', array_fill(0, count($sup_seg_ids), '?'));
+            $st_ph  = implode(',', array_fill(0, count(Suppression::ACTIVE_STATES), '?'));
+            $params = array_merge($sup_seg_ids, [$send_date], Suppression::ACTIVE_STATES);
+            $suppressors_on_day = DB::all(
+                "SELECT id, name, segment_name, lead_count, status FROM campaigns
+                  WHERE segment_id IN ($seg_ph)
+                    AND DATE(send_time) = ?
+                    AND status IN ($st_ph)
+                  ORDER BY name",
+                $params
+            );
+        }
+    }
+    if ($send_date !== '' && $c['segment_id']) {
+        $suppress_total_emails = count(Suppression::computeEmails((string)$c['segment_id'], $send_date));
+    }
+} catch (Throwable $e) {
+    // vvip_suppression.sql 미적용(컬럼/테이블 부재) 또는 기타 도메인 외 오류는 페이지 차단을 막고 경고만 표시.
+    error_log('[detail.php VVIP suppression] ' . $e->getMessage());
+    $suppression_warning = $e->getMessage();
+}
+
+// 리드별 cap 영향 — lead_send_cap.sql 미적용 시에도 페이지 정상 렌더되도록 try/catch.
+$cap_summary  = null;
+$cap_warning  = null;
+try {
+    if ($c['segment_id'] && $send_date !== '') {
+        $cap_summary = SendCap::summaryForCampaign((string)$c['id'], (string)$c['segment_id'], $send_date);
+    }
+} catch (Throwable $e) {
+    error_log('[detail.php SendCap] ' . $e->getMessage());
+    $cap_warning = $e->getMessage();
+}
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2><?= htmlspecialchars($c['name']) ?></h2>
@@ -50,6 +124,125 @@ $is_urgent      = $hours_to_send !== null && $hours_to_send >= 0 && $hours_to_se
       </dl>
     </div></div>
   </div>
+  <?php if ($suppression_warning !== null): ?>
+  <div class="col-12">
+    <div class="alert alert-warning small mb-0">
+      ⚠️ <strong>VVIP Suppression 정보 로드 실패</strong>
+      <span class="text-muted">— 캠페인 상세는 정상 표시되었으나, 우선순위 정보 박스는 일시적으로 숨겼습니다.</span>
+      <details class="mt-1">
+        <summary class="text-muted">기술 정보 (운영자 전용)</summary>
+        <div class="mt-1">
+          <code class="text-break"><?= htmlspecialchars($suppression_warning) ?></code>
+          <div class="mt-1 text-muted">
+            마이그레이션 미적용일 가능성이 높습니다. phpMyAdmin 에서 다음 파일을 실행하세요:<br>
+            <code>sql/migrations/vvip_suppression.sql</code>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+  <?php endif; ?>
+  <?php if (!empty($suppressed_targets) || !empty($suppressors_on_day)): ?>
+  <div class="col-12">
+    <div class="card border-info">
+      <div class="card-header bg-info bg-opacity-10">
+        <strong>🛡️ 발송 우선순위 (Suppression) 영향</strong>
+        <small class="text-muted">— 같은 날(<?= htmlspecialchars($send_date) ?>) 발송 기준</small>
+      </div>
+      <div class="card-body small">
+        <?php if (!empty($suppressed_targets)): ?>
+          <div class="mb-2">
+            <strong>이 캠페인이 영향 주는 캠페인</strong>
+            <span class="badge bg-info"><?= count($suppressed_targets) ?>건</span>
+            <span class="text-muted">— 본 캠페인 모수(<?= number_format((int)$c['lead_count']) ?>명)가 아래 캠페인 대상에서 자동 제외됩니다.</span>
+          </div>
+          <ul class="mb-3">
+            <?php foreach ($suppressed_targets as $t): ?>
+              <li>
+                <a href="<?= APP_URL ?>/campaigns/<?= htmlspecialchars($t['id']) ?>"><?= htmlspecialchars($t['name']) ?></a>
+                <span class="text-muted">[<?= htmlspecialchars($t['segment_name']) ?>]</span>
+                — 대상 <?= number_format((int)$t['lead_count']) ?>명, status=<code><?= htmlspecialchars($t['status']) ?></code>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+        <?php endif; ?>
+
+        <?php if (!empty($suppressors_on_day)): ?>
+          <div class="mb-2">
+            <strong>이 캠페인이 영향 받는 suppressor</strong>
+            <span class="badge bg-warning"><?= count($suppressors_on_day) ?>건</span>
+            <span class="text-muted">— 본 캠페인 추출 시 아래 캠페인 모수(<?= number_format($suppress_total_emails) ?>명)가 NOT IN 으로 제외됩니다.</span>
+          </div>
+          <ul class="mb-0">
+            <?php foreach ($suppressors_on_day as $t): ?>
+              <li>
+                <a href="<?= APP_URL ?>/campaigns/<?= htmlspecialchars($t['id']) ?>"><?= htmlspecialchars($t['name']) ?></a>
+                <span class="text-muted">[<?= htmlspecialchars($t['segment_name']) ?>]</span>
+                — 모수 <?= number_format((int)$t['lead_count']) ?>명, status=<code><?= htmlspecialchars($t['status']) ?></code>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
+  <?php if ($cap_warning !== null): ?>
+  <div class="col-12">
+    <div class="alert alert-warning small mb-0">
+      ⚠️ <strong>리드별 cap 정보 로드 실패</strong>
+      <span class="text-muted">— 본 박스만 숨김 처리, 다른 화면은 정상 표시.</span>
+      <details class="mt-1">
+        <summary class="text-muted">기술 정보 (운영자 전용)</summary>
+        <div class="mt-1">
+          <code class="text-break"><?= htmlspecialchars($cap_warning) ?></code>
+          <div class="mt-1 text-muted">
+            마이그레이션 미적용일 가능성이 높습니다. phpMyAdmin 에서 다음 파일을 실행하세요:<br>
+            <code>sql/migrations/lead_send_cap.sql</code>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+  <?php endif; ?>
+  <?php if ($cap_summary !== null && ($cap_summary['cap_per_day'] > 0 || $cap_summary['cap_per_week'] > 0)): ?>
+  <div class="col-12">
+    <div class="card border-secondary">
+      <div class="card-header bg-light">
+        <strong>🚦 발송 빈도 cap 영향</strong>
+        <small class="text-muted">— 본 세그먼트 추출 시 적용</small>
+      </div>
+      <div class="card-body small">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <div class="text-muted">본 세그먼트 cap 정책</div>
+            <div>
+              일 <strong><?= $cap_summary['cap_per_day'] === 0 ? '무제한' : $cap_summary['cap_per_day'] . '통' ?></strong>
+              · 주 <strong><?= $cap_summary['cap_per_week'] === 0 ? '무제한' : $cap_summary['cap_per_week'] . '통' ?></strong>
+              · priority <strong><?= $cap_summary['cap_priority'] ?></strong>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted">추출 시점 cap 위반 예상</div>
+            <div>
+              <strong><?= number_format($cap_summary['blocked_estimate']) ?>명</strong>
+              <span class="text-muted">제외 (priority ≥ <?= $cap_summary['cap_priority'] ?> 인 다른 캠페인 점유)</span>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted">본 캠페인 박제 상태</div>
+            <div>
+              hold <strong><?= number_format($cap_summary['hold']) ?>건</strong>
+              · sent <strong><?= number_format($cap_summary['sent']) ?>건</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <?php if ($c['error_message']): ?>
   <div class="col-12">
     <div class="alert alert-danger"><pre class="mb-0" style="white-space:pre-wrap;font-family:inherit;font-size:inherit;color:inherit;"><?= htmlspecialchars($c['error_message']) ?></pre></div>
@@ -196,6 +389,25 @@ $is_urgent      = $hours_to_send !== null && $hours_to_send >= 0 && $hours_to_se
                 테스트 메일을 받아 렌더링이 정상임을 확인했는가
               </label>
             </div>
+            <div class="form-check border-top pt-2 mt-2">
+              <input class="form-check-input approval-check" type="checkbox" id="chk-marketo-asset">
+              <label class="form-check-label" for="chk-marketo-asset">
+                <strong>Marketo UI 에서 발송 Program 에 연결된 *실제 이메일 에셋*이 위에 표시된 <code><?= htmlspecialchars($c['asset_name'] ?? '') ?></code> 와 동일한지 직접 확인했는가</strong>
+                <div class="small text-muted">
+                  (SEV1 RCA 2026-05-22 후속 — Marketo Smart Campaign 이 발송하는 이메일은 본 시스템의 에셋 선택값과 자동 일치하지 않을 수 있음.
+                  발송 Program 의 Flow 탭 → "Send Email" 스텝의 연결 이메일을 직접 눈으로 확인 필수.)
+                </div>
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input approval-check" type="checkbox" id="chk-marketo-tokens">
+              <label class="form-check-label" for="chk-marketo-tokens">
+                <strong>Marketo UI 에서 발송 Program 의 my.Token 4종(Emoji/Title/Preheader/RewardUrl)이 의도한 값과 일치하는지 직접 확인했는가</strong>
+                <div class="small text-muted">
+                  (운영자 환경에서 C-TOKEN-VERIFY 가 610 권한으로 자동 skip 되는 경우가 있음. 발송 직전 마지막 안전망 — 특히 Preheader 값이 캠페인 생성 시 입력한 텍스트와 동일한지)
+                </div>
+              </label>
+            </div>
           </div>
 
           <div class="d-flex gap-2 flex-wrap mb-3 border-bottom pb-3">
@@ -226,19 +438,30 @@ $is_urgent      = $hours_to_send !== null && $hours_to_send >= 0 && $hours_to_se
 </div>
 
 <?php
-// ORCH Sprint 0 — 5분 취소 윈도 카운트다운
-// 발송 예정 시각 = scheduled_at 날짜 + send_time(HH:MM) UTC. api/campaigns.php의 schedule 로직과 일치.
+// ORCH Sprint 0 — 5분 취소 윈도 카운트다운.
+//
+// SEV1 RCA(2026-05-22) 후속 — 본 ISO 계산도 KST→UTC 명시 변환 필요. 과거 코드는
+//   date('Y-m-d\TH:i:s', strtotime($raw_st)) . '+0000'
+// 형태로 KST wall-clock 을 그대로 +0000 으로 라벨링 → 브라우저가 KST 19:00 으로 해석 →
+// 카운트다운이 9h 짧게 표시. SEV1 RC#1 안티패턴 그대로 재발 (code-reviewer C-2).
+// format_send_time_for_marketo() 로 통일.
 $send_dt_iso = null;
 if ($c['status'] === 'scheduled') {
     $raw_st = $c['send_time'] ?? '';
-    if (strlen($raw_st) > 5) {
-        // full datetime (YYYY-MM-DDTHH:MM)
-        $send_dt_iso = date('Y-m-d\TH:i:s', strtotime($raw_st)) . '+0000';
-    } elseif (preg_match('/^\d{2}:\d{2}$/', $raw_st)) {
-        $date_part   = date('Y-m-d', strtotime($c['scheduled_at']));
-        $send_dt_iso = $date_part . 'T' . $raw_st . ':00+0000';
-    } else {
-        $send_dt_iso = date('Y-m-d\TH:i:s', strtotime($c['scheduled_at'])) . '+0000';
+    try {
+        if (strlen($raw_st) > 5) {
+            $send_dt_iso = format_send_time_for_marketo($raw_st);
+        } elseif (preg_match('/^\d{2}:\d{2}$/', $raw_st)) {
+            $date_part   = date('Y-m-d', strtotime($c['scheduled_at']));
+            $send_dt_iso = format_send_time_for_marketo($date_part . 'T' . $raw_st);
+        } else {
+            // scheduled_at 은 DB 저장 시각 (서버 기본 TZ). format_send_time_for_marketo 가
+            // KST wall-clock 해석으로 통일된 변환을 보장하도록 동일 헬퍼 사용.
+            $iso_input   = date('Y-m-d\TH:i:s', strtotime((string)$c['scheduled_at']));
+            $send_dt_iso = format_send_time_for_marketo($iso_input);
+        }
+    } catch (Throwable $e) {
+        $send_dt_iso = null; // 파싱 실패 시 카운트다운 자체 비활성
     }
 }
 ?>

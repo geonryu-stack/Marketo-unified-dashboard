@@ -97,6 +97,31 @@ $router->add('POST', '/api/marketo-url-parse', function ($p) {
     require_once __DIR__ . '/api/marketo-url-parse.php';
 });
 
+// PR-4 (δ) — Marketo API 일별 콜 분포 조회 (50K/일 한도 모니터링)
+$router->add('GET', '/api/marketo-usage', function ($p) {
+    require_once __DIR__ . '/api/marketo-usage.php';
+});
+$router->add('GET', '/marketo-usage', function ($p) {
+    include __DIR__ . '/pages/marketo_usage.php';
+});
+// G4 — needs_manual_review 격리 큐 통합 대시보드
+$router->add('GET', '/isolation-queue', function ($p) {
+    include __DIR__ . '/pages/isolation_queue.php';
+});
+
+// 발송 결과 대시보드 — 마케터 친화 KPI 페이지
+$router->add('GET', '/dashboard/results', function ($p) {
+    include __DIR__ . '/pages/dashboard_results.php';
+});
+$router->add('GET', '/api/dashboard/{action}', function ($p) {
+    $GLOBALS['route_params'] = $p;
+    require_once __DIR__ . '/api/dashboard.php';
+});
+$router->add('GET', '/api/dashboard/{action}/{id}', function ($p) {
+    $GLOBALS['route_params'] = $p;
+    require_once __DIR__ . '/api/dashboard.php';
+});
+
 // Post-S3 운영자 피드백 #3 — 직전 회차 토큰 복사
 $router->add('GET', '/api/segments/{id}/latest-tokens', function ($p) {
     $GLOBALS['route_params'] = $p;

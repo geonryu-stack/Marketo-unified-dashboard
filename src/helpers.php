@@ -463,17 +463,62 @@ function parse_send_time(string $raw): int
     return (int)strtotime(str_replace('T', ' ', $raw));
 }
 
+/**
+ * SEV1 RCA(2026-05-22) 후속 — send_time → Marketo runAt 명시 timezone 변환.
+ *
+ * 운영자가 datetime-local 입력 '2026-05-21T10:00' 를 *KST 의도* 로 넣었는데,
+ * 기존 코드는 date('Y-m-d\TH:i:s', ts) . 'Z' 로 만들어 KST 시각이 그대로 UTC 'Z' 표기됨 →
+ * Marketo 가 UTC 10:00 으로 해석 → 수신자에게 KST 19:00 발송 (9h 어긋남).
+ *
+ * 본 함수는:
+ *   1) 입력을 APP_INPUT_TIMEZONE (= 'Asia/Seoul') 의 wall-clock 으로 해석
+ *   2) UTC 로 명시 변환
+ *   3) ISO8601 'Y-m-d\TH:i:s\Z' 로 반환
+ *
+ * 예: '2026-05-21T10:00' (KST 의도) → '2026-05-21T01:00:00Z' (Marketo 가 UTC 01:00 으로 해석 = KST 10:00)
+ *
+ * @throws RuntimeException 빈 입력 또는 파싱 실패
+ */
+function format_send_time_for_marketo(string $raw): string
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        throw new RuntimeException('format_send_time_for_marketo: 빈 send_time');
+    }
+    $tz_name = defined('APP_INPUT_TIMEZONE') ? APP_INPUT_TIMEZONE : 'Asia/Seoul';
+    try {
+        $tz_local = new DateTimeZone($tz_name);
+        $dt = new DateTimeImmutable($raw, $tz_local);
+    } catch (Exception $e) {
+        throw new RuntimeException("format_send_time_for_marketo: '$raw' 파싱 실패 ({$e->getMessage()})");
+    }
+    return $dt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z');
+}
+
 // ── JSON 바디 파싱 ─────────────────────────────────────────────
+//
+// 반환 계약: 항상 array. 다음 케이스를 모두 *400 으로 거부* (5xx 차단):
+//   - JSON 파싱 실패 ('Invalid JSON body')
+//   - 유효하지만 top-level 이 array 아닌 값 (string / number / boolean / null) ('JSON body must be an object')
+// json_err() 는 내부에서 exit 하므로 본 함수 반환 후 호출자는 array 만 보장받음.
 
 function parse_json_body(): array
 {
     $raw = file_get_contents('php://input');
-    if (empty($raw)) return [];
+    // strict 빈 비교 — empty() 함정 회피.
+    // empty('0') 가 true 이므로 JSON scalar 0 (= raw 문자열 "0") 이 빈 body 로 오인되어
+    // is_array 가드를 우회하던 결함을 차단. file_get_contents 실패시 false 도 함께 처리.
+    if ($raw === false || $raw === '') return [];
     $data = json_decode($raw, true);
     if (json_last_error() !== JSON_ERROR_NONE) {
         json_err('Invalid JSON body', 400);
     }
-    return $data ?? [];
+    // valid JSON 이지만 top-level 이 array 아닌 경우 (예: "hello", 42, 0, true, null) → 400.
+    // PHP 8 의 strict return type(array) 위반으로 TypeError 가 발생해 5xx 가 되는 것을 사전 차단.
+    if (!is_array($data)) {
+        json_err('JSON body must be an object', 400);
+    }
+    return $data;
 }
 
 // ── KPI 헬퍼 (ORCH Sprint 2 — ⑲ KPI 대시보드) ───────────────────

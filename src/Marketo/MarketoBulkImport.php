@@ -91,7 +91,10 @@ class MarketoBulkImport
 
                 // 게이트 거절 (606/615) — 백오프 재시도
                 if (in_array($code, MarketoAPI::SAFE_RETRY_CODES, true) && $attempt < $max_attempts) {
-                    sleep(MarketoAPI::RETRY_DELAYS[$attempt]);
+                    // H3 — Retry-After 헤더 우선 사용 + 길어진 백오프(5/15/30s). curl_setopt 로 본 모듈은
+                    // 헤더를 직접 캡처하지 않으므로 lastRetryAfter() 는 null 일 가능성이 높지만, 동일 정책 함수
+                    // 사용으로 정책 일관성 유지.
+                    sleep(MarketoAPI::decideBackoffSeconds($attempt, MarketoAPI::lastRetryAfter()));
                     continue;
                 }
 
@@ -111,14 +114,18 @@ class MarketoBulkImport
     /**
      * Bulk Import 잡 상태 조회 (GET — 폴링용).
      *
-     * @return array ['status' => 'Importing|Complete|Failed', 'numOfRowsWithError' => ..., ...]
+     * 공식 path (Adobe Experience League endpoint reference): GET /bulk/v1/leads/batch/{id}.json.
+     * 과거 일부 sample 에서 `.../{id}/status.json` 형태가 사용된 적이 있으나, 공식 spec 은 `.json` 끝.
+     * suffix 변종은 일부 인스턴스에서 404 반환 → 폴링 cron 무한 stuck 위험. spec 표준에 맞춤.
+     *
+     * @return array ['status' => 'Queued|Importing|Complete|Failed', 'numOfLeadsProcessed' => ..., ...]
      */
     public static function getBulkImportStatus(string $batchId): array
     {
         if ($batchId === '') {
             throw new RuntimeException('batchId가 비어있습니다.');
         }
-        $url = MARKETO_REST_URL . "/bulk/v1/leads/batch/" . urlencode($batchId) . "/status.json";
+        $url = MARKETO_REST_URL . "/bulk/v1/leads/batch/" . urlencode($batchId) . ".json";
 
         // GET이므로 5xx/네트워크 포함 풀 재시도 안전
         $token          = MarketoAPI::getAccessToken();
@@ -142,7 +149,10 @@ class MarketoBulkImport
             // 네트워크 오류 — GET이므로 재시도
             if ($response === false) {
                 if ($attempt < $max_attempts) {
-                    sleep(MarketoAPI::RETRY_DELAYS[$attempt]);
+                    // H3 — Retry-After 헤더 우선 사용 + 길어진 백오프(5/15/30s). curl_setopt 로 본 모듈은
+                    // 헤더를 직접 캡처하지 않으므로 lastRetryAfter() 는 null 일 가능성이 높지만, 동일 정책 함수
+                    // 사용으로 정책 일관성 유지.
+                    sleep(MarketoAPI::decideBackoffSeconds($attempt, MarketoAPI::lastRetryAfter()));
                     continue;
                 }
                 throw new RuntimeException('Bulk Import status 네트워크 오류 (재시도 한도 초과)');
@@ -153,7 +163,10 @@ class MarketoBulkImport
             // 5xx — GET이므로 재시도
             if ($http_code >= 500) {
                 if ($attempt < $max_attempts) {
-                    sleep(MarketoAPI::RETRY_DELAYS[$attempt]);
+                    // H3 — Retry-After 헤더 우선 사용 + 길어진 백오프(5/15/30s). curl_setopt 로 본 모듈은
+                    // 헤더를 직접 캡처하지 않으므로 lastRetryAfter() 는 null 일 가능성이 높지만, 동일 정책 함수
+                    // 사용으로 정책 일관성 유지.
+                    sleep(MarketoAPI::decideBackoffSeconds($attempt, MarketoAPI::lastRetryAfter()));
                     continue;
                 }
                 throw new RuntimeException("Bulk Import status HTTP $http_code (재시도 한도 초과)");
@@ -171,7 +184,10 @@ class MarketoBulkImport
                 }
 
                 if (in_array($code, MarketoAPI::SAFE_RETRY_CODES, true) && $attempt < $max_attempts) {
-                    sleep(MarketoAPI::RETRY_DELAYS[$attempt]);
+                    // H3 — Retry-After 헤더 우선 사용 + 길어진 백오프(5/15/30s). curl_setopt 로 본 모듈은
+                    // 헤더를 직접 캡처하지 않으므로 lastRetryAfter() 는 null 일 가능성이 높지만, 동일 정책 함수
+                    // 사용으로 정책 일관성 유지.
+                    sleep(MarketoAPI::decideBackoffSeconds($attempt, MarketoAPI::lastRetryAfter()));
                     continue;
                 }
 
@@ -196,8 +212,9 @@ class MarketoBulkImport
      *
      * Marketo `getBulkImportStatus` 응답 키는 인스턴스/시점에 따라 다를 수 있어
      * 다음 키 순서로 fallback 한다 (없으면 0):
-     *   - processed: numOfRowsProcessed → numOfRowsCompleted
+     *   - processed: numOfLeadsProcessed (공식 spec) → numOfRowsProcessed → numOfRowsCompleted
      *   - total:     numOfRowsTotal     → numOfRows
+     *     (공식 spec response 예시에는 total 필드가 명시되지 않음 — null 가능성 있어 호출자가 None 처리)
      *   - failed:    numOfRowsFailed
      *
      * @param array       $status_response getBulkImportStatus() 의 raw 반환값
@@ -219,9 +236,10 @@ class MarketoBulkImport
     {
         $status = (string)($status_response['status'] ?? 'Unknown');
 
-        // processed / total / failed — 키 fallback
+        // processed / total / failed — 키 fallback (공식 spec 우선)
         $processed = (int)(
-            $status_response['numOfRowsProcessed']
+            $status_response['numOfLeadsProcessed']
+            ?? $status_response['numOfRowsProcessed']
             ?? $status_response['numOfRowsCompleted']
             ?? 0
         );
@@ -288,6 +306,11 @@ class MarketoBulkImport
     /**
      * leads 배열 → CSV 문자열.
      * 헤더: email,country (country 필드 누락 시 빈 칸).
+     *
+     * Fix 4: BULK_CSV_MAX_BYTES 사전검증.
+     * Marketo Bulk Import 하드리미트는 10MB. 그 직전에 빠르게 throw 하여
+     * silent fail(서버측 422/모호한 응답)을 막는다. 임계값은 config 상수로
+     * 노출 — 0 이면 가드 비활성(롤백용 kill switch).
      */
     private static function buildCsv(array $leads): string
     {
@@ -309,6 +332,17 @@ class MarketoBulkImport
         fclose($fp);
         if ($csv === false) {
             throw new RuntimeException('CSV 생성 실패');
+        }
+
+        $max_bytes = defined('BULK_CSV_MAX_BYTES') ? (int)BULK_CSV_MAX_BYTES : 0;
+        if ($max_bytes > 0 && strlen($csv) > $max_bytes) {
+            $size_mb = round(strlen($csv) / 1024 / 1024, 2);
+            $cap_mb  = round($max_bytes / 1024 / 1024, 2);
+            throw new RuntimeException(
+                "Bulk Import CSV 크기 {$size_mb}MB 가 사전검증 한도 {$cap_mb}MB 를 초과했습니다. " .
+                'Marketo Bulk Import 하드리미트(10MB)에 도달하기 전에 차단합니다. ' .
+                '대상자를 분할하거나 발송 그룹을 재설계하세요.'
+            );
         }
         return $csv;
     }

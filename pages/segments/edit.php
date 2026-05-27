@@ -8,6 +8,13 @@ $seg['filters'] = json_decode($seg['filters'], true) ?? [];
 $title          = '세그먼트 편집: ' . htmlspecialchars($seg['name']);
 $field_defs     = get_field_defs();
 $scripts        = ['segment-builder.js'];
+// VVIP suppression UI 컴포넌트가 사용할 컨텍스트
+$current_seg_id = $seg['id'];
+$current_supp   = $seg['suppresses_segment_ids'] ?? null;
+// 리드별 cap UI 컴포넌트가 사용할 컨텍스트
+$current_cap_per_day  = $seg['cap_per_day']  ?? 1;
+$current_cap_per_week = $seg['cap_per_week'] ?? 7;
+$current_cap_priority = $seg['cap_priority'] ?? 100;
 include __DIR__ . '/../layout_header.php';
 ?>
 <h2>세그먼트 편집</h2>
@@ -94,6 +101,10 @@ include __DIR__ . '/../layout_header.php';
       </select>
     </div>
   </div>
+
+  <?php include __DIR__ . '/_suppression_section.php'; ?>
+
+  <?php include __DIR__ . '/_cap_section.php'; ?>
 
   <h5 class="mt-3">반복 발송</h5>
   <div class="row g-3 mb-4">

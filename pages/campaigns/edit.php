@@ -52,7 +52,7 @@ include __DIR__ . '/../layout_header.php';
       </div>
 
       <div class="mb-3">
-        <label class="form-label">이메일 에셋 *
+        <label class="form-label">이메일 에셋 (수동 교체 기준) *
           <span class="text-muted fw-normal small">(Library Program ID: <?= $email_lib_program_id ?>)</span>
         </label>
         <select class="form-select" name="marketo_cloned_email_id" id="email-asset-select" required>
@@ -61,6 +61,12 @@ include __DIR__ . '/../layout_header.php';
         <div class="form-text" id="email-asset-count"></div>
         <input type="hidden" name="asset_name" id="asset-name-input"
                value="<?= htmlspecialchars($c['asset_name'] ?? '') ?>">
+        <div class="alert alert-warning small mt-2 mb-0">
+          ⚠️ <strong>본 시스템은 이메일 자산을 자동 교체하지 못합니다 (Marketo Smart Campaign Flow API 한계).</strong><br>
+          반드시 발송 전 Marketo UI 에서 직접 교체:
+          <code>Marketing Activities → 발송 Program → Smart Campaign → Flow → Send Email → 위 자산으로 교체</code>.
+          발송 후 시스템이 Activity API 로 실제 발송 자산명을 검증해 불일치 시 자동 격리합니다.
+        </div>
       </div>
 
       <hr class="my-4">

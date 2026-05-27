@@ -1,6 +1,7 @@
 <?php
 // api/segments.php
 declare(strict_types=1);
+require_once __DIR__ . '/../src/Suppression.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 $params = $GLOBALS['route_params'] ?? [];
@@ -8,6 +9,23 @@ $id     = $params['id'] ?? null;
 // index.php는 INFRA zone(동결)이라 새 라우트를 추가하지 않고 query param으로 분기.
 //   GET /api/segments/{id}?action=cohort&limit=5 → cohort 추세 응답
 $query_action = $_GET['action'] ?? null;
+
+/**
+ * 리드별 cap 입력값을 0~9999 정수로 정규화. 음수·NaN 차단.
+ * 누락(키 자체 없음) 시 $default 반환. priority 도 동일 범위.
+ */
+function sanitize_cap_int(mixed $raw, int $default): int
+{
+    if ($raw === null || $raw === '') return $default;
+    if (!is_numeric($raw)) {
+        json_err('cap 값은 0 이상 9999 이하의 정수여야 합니다.', 400);
+    }
+    $n = (int)$raw;
+    if ($n < 0 || $n > 9999) {
+        json_err('cap 값은 0 이상 9999 이하의 정수여야 합니다.', 400);
+    }
+    return $n;
+}
 
 try {
     // GET /api/segments — 목록
@@ -96,24 +114,31 @@ try {
         }
         $now  = now_str();
         $new_id = new_uuid();
+        $suppresses_json = Suppression::sanitizeInput($body['suppresses_segment_ids'] ?? [], $new_id);
+        $cap_per_day  = sanitize_cap_int($body['cap_per_day']  ?? null, 1);
+        $cap_per_week = sanitize_cap_int($body['cap_per_week'] ?? null, 7);
+        $cap_priority = sanitize_cap_int($body['cap_priority'] ?? null, 100);
         DB::exec(
             'INSERT INTO segments
-             (id, name, description, filters,
+             (id, name, description, filters, suppresses_segment_ids,
               marketo_program_id, marketo_audience_list_id, marketo_email_program_id,
-              is_recurring, send_day_of_week, recurring_send_time,
+              is_recurring, cap_per_day, cap_per_week, cap_priority,
+              send_day_of_week, recurring_send_time,
               default_email_id, default_asset_name, default_reward_url,
               default_emoji, default_send_time, default_name_prefix,
               created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             [
                 $new_id,
                 $body['name'] ?? '',
                 $body['description'] ?? '',
                 json_encode($body['filters'] ?? []),
+                $suppresses_json,
                 $body['marketo_program_id'] ?? '',
                 $body['marketo_audience_list_id'] ?? '',
                 $body['marketo_email_program_id'] ?? '',
                 (int)($body['is_recurring'] ?? 0),
+                $cap_per_day, $cap_per_week, $cap_priority,
                 (int)($body['send_day_of_week'] ?? 1),
                 $body['recurring_send_time'] ?? '10:00',
                 $body['default_email_id']    ?? '',
@@ -138,12 +163,20 @@ try {
         if (empty($filters)) {
             json_err('필터 조건이 없으면 전체 유저가 대상이 됩니다. 조건을 1개 이상 추가하세요.', 400);
         }
+        // 미입력 시 기존 값 보존. 입력 시 자기참조·미존재 ID 검증.
+        $suppresses_json = array_key_exists('suppresses_segment_ids', $body)
+            ? Suppression::sanitizeInput($body['suppresses_segment_ids'], $id)
+            : ($existing['suppresses_segment_ids'] ?? '[]');
         $now = now_str();
+        $cap_per_day  = sanitize_cap_int($body['cap_per_day']  ?? null, (int)$existing['cap_per_day']);
+        $cap_per_week = sanitize_cap_int($body['cap_per_week'] ?? null, (int)$existing['cap_per_week']);
+        $cap_priority = sanitize_cap_int($body['cap_priority'] ?? null, (int)$existing['cap_priority']);
         DB::exec(
             'UPDATE segments SET
-             name=?, description=?, filters=?,
+             name=?, description=?, filters=?, suppresses_segment_ids=?,
              marketo_program_id=?, marketo_audience_list_id=?, marketo_email_program_id=?,
-             is_recurring=?, send_day_of_week=?, recurring_send_time=?,
+             is_recurring=?, cap_per_day=?, cap_per_week=?, cap_priority=?,
+             send_day_of_week=?, recurring_send_time=?,
              default_email_id=?, default_asset_name=?, default_reward_url=?,
              default_emoji=?, default_send_time=?, default_name_prefix=?,
              updated_at=?
@@ -152,10 +185,12 @@ try {
                 $body['name']        ?? $existing['name'],
                 $body['description'] ?? $existing['description'],
                 json_encode($filters),
+                $suppresses_json,
                 $body['marketo_program_id']       ?? $existing['marketo_program_id'],
                 $body['marketo_audience_list_id'] ?? $existing['marketo_audience_list_id'],
                 $body['marketo_email_program_id'] ?? $existing['marketo_email_program_id'],
                 isset($body['is_recurring'])      ? (int)$body['is_recurring']      : (int)$existing['is_recurring'],
+                $cap_per_day, $cap_per_week, $cap_priority,
                 isset($body['send_day_of_week'])  ? (int)$body['send_day_of_week']  : (int)$existing['send_day_of_week'],
                 $body['recurring_send_time'] ?? $existing['recurring_send_time'],
                 $body['default_email_id']    ?? $existing['default_email_id'],

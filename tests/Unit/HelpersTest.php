@@ -538,4 +538,58 @@ final class HelpersTest extends TestCase
         $this->assertStringContainsString('dry-run-', $src,
             'dry-run 시 fake batchId prefix가 있어야 함');
     }
+
+    // ── SEV1 RCA(2026-05-22) — format_send_time_for_marketo 회귀 가드 ──
+    // P0 인시던트: 운영자가 datetime-local 로 입력한 KST 시각이 timezone 변환 없이
+    // 'Z'(UTC) 표기로 Marketo 에 전달돼 수신자에게 9h 어긋난 시각 발송. 본 테스트 셋은
+    // KST → UTC 명시 변환이 정확한지 회귀 가드.
+
+    public function testFormatSendTimeForMarketoConvertsKstToUtc(): void
+    {
+        // KST 10:00 = UTC 01:00
+        $out = format_send_time_for_marketo('2026-05-21T10:00');
+        $this->assertSame('2026-05-21T01:00:00Z', $out);
+    }
+
+    public function testFormatSendTimeForMarketoHandlesIsoWithSeconds(): void
+    {
+        // seconds 포함된 입력도 정확히 변환
+        $out = format_send_time_for_marketo('2026-05-21T10:00:30');
+        $this->assertSame('2026-05-21T01:00:30Z', $out);
+    }
+
+    public function testFormatSendTimeForMarketoHandlesMidnightAcrossDateBoundary(): void
+    {
+        // KST 00:00 = UTC 전날 15:00 — 날짜 경계도 정확
+        $out = format_send_time_for_marketo('2026-05-21T00:00');
+        $this->assertSame('2026-05-20T15:00:00Z', $out);
+    }
+
+    public function testFormatSendTimeForMarketoThrowsOnEmpty(): void
+    {
+        $this->expectException(RuntimeException::class);
+        format_send_time_for_marketo('');
+    }
+
+    public function testFormatSendTimeForMarketoThrowsOnGarbage(): void
+    {
+        $this->expectException(RuntimeException::class);
+        format_send_time_for_marketo('not-a-datetime');
+    }
+
+    public function testFormatSendTimeForMarketoIgnoresSystemTimezone(): void
+    {
+        // 시스템 TZ 가 임의로 바뀌어도 KST 의도가 보존돼야 한다 — wall-clock 해석 일관성 검증.
+        $orig = date_default_timezone_get();
+        try {
+            date_default_timezone_set('UTC');
+            $a = format_send_time_for_marketo('2026-05-21T10:00');
+            date_default_timezone_set('America/Los_Angeles');
+            $b = format_send_time_for_marketo('2026-05-21T10:00');
+            $this->assertSame($a, $b, '시스템 TZ 와 무관하게 동일 결과');
+            $this->assertSame('2026-05-21T01:00:00Z', $a);
+        } finally {
+            date_default_timezone_set($orig);
+        }
+    }
 }
