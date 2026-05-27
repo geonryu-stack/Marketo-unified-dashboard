@@ -213,16 +213,29 @@ foreach ($due as $c) {
         $lead_count  = (int)$c['lead_count'];
         $coverage    = $lead_count > 0 ? $sent / $lead_count : 0;
 
-        // 종료 조건 변경 (8h → 168h) — open/click 은 D+7 까지 트리클하므로 일찍 종료하면 누락.
-        // 신규 활동 1h 이상 없음 + 발송 후 168h 경과 = 진짜 종료. truncated 면 절대 종료 안 함.
-        $now_ts             = time();
-        $stale_threshold_s  = 3600; // 1h
-        $last_act_ts        = $last_activity_at ? strtotime($last_activity_at) : 0;
+        // 종료 조건 — 7일(168h) 윈도우 의도 보호.
+        //
+        // open/click 은 D+7 까지 천천히 트리클하므로 *일찍 종료하면 누락*. Codex stop-time review:
+        // 이전 stale_threshold 1h 는 발송 직후 sent flood 끝나고 delivered/open 트리클 시작 전
+        // 1h+ silent period 에서 false-positive 종료 발생 → 7d 윈도우 무력화.
+        //
+        // 정책:
+        //   1) min_elapsed_min (48h) 보호 — 발송 후 최소 48시간까지는 절대 종료 안 함.
+        //      open/click 트리클의 *시작* 보장 (보통 D+1~D+2 사이 시작).
+        //   2) stale_threshold 24h — 활동 silence period 가 24h 이상이면 트리클 끝났다고 판정.
+        //      과거 1h 는 트리클 자연 gap 과 구분 못 함.
+        //   3) max_elapsed 168h — 7일 도달 시 강제 종료 (자원 회수). truncated 면 절대 종료 안 함.
+        $now_ts              = time();
+        $stale_threshold_s   = 24 * 3600;   // 24h — open/click 트리클 silence 안전 마진
+        $min_elapsed_min     = 48 * 60;     // 48h — 트리클 시작 보장 (D+2 까지 보호)
+        $last_act_ts         = $last_activity_at ? strtotime($last_activity_at) : 0;
         $has_recent_activity = $last_act_ts > 0 && ($now_ts - $last_act_ts) < $stale_threshold_s;
         $is_done = !$truncated
             && (
-                ($elapsed_min >= 168 * 60)                              // 168h 초과 → 강제 종료
-                || ($coverage >= 0.95 && !$has_recent_activity)          // 발송은 95%+ 이고 트리클 끝남
+                ($elapsed_min >= 168 * 60)                                  // 168h 초과 → 강제 종료
+                || ($elapsed_min >= $min_elapsed_min                        // 최소 48h 경과 후에만
+                    && $coverage >= 0.95
+                    && !$has_recent_activity)                               // 24h+ 활동 없음 = 트리클 끝
             );
 
         $new_status = $is_done

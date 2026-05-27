@@ -103,6 +103,37 @@ final class MarketoApiSpecGuardTest extends TestCase
     }
 
     /**
+     * Codex stop-time review — Activity 폴링이 7d 윈도우 전에 일찍 종료되지 않아야 함.
+     * 1h stale threshold 회귀 시 발송 직후 sent flood 후 트리클 시작 전 1h gap 으로
+     * false-positive 종료 → open/click 통계 누락.
+     */
+    public function testActivityPollingProtects7DayWindow(): void
+    {
+        $cron = (string)file_get_contents(__DIR__ . '/../../cron/check_sent_activities.php');
+
+        // 168h 강제 종료 가드 존재
+        $this->assertMatchesRegularExpression(
+            '/elapsed_min\s*>=\s*168\s*\*\s*60/',
+            $cron,
+            '7d (168h) 강제 종료 가드가 사라짐'
+        );
+
+        // min_elapsed_min 가드 (48h) — 발송 직후 false-positive 종료 차단
+        $this->assertMatchesRegularExpression(
+            '/min_elapsed_min\s*=\s*48\s*\*\s*60/',
+            $cron,
+            '발송 직후 48h 보호 가드가 제거됨 — open/click 트리클 시작 전 종료 위험'
+        );
+
+        // stale threshold 가 1h 같은 *짧은* 값으로 회귀하면 안 됨
+        $this->assertDoesNotMatchRegularExpression(
+            '/stale_threshold_s\s*=\s*3600\s*;/',
+            $cron,
+            'stale threshold 1h 회귀 — open/click 트리클 자연 silence 와 구분 못 함 → 일찍 종료'
+        );
+    }
+
+    /**
      * Codex stop-time review — cancel acknowledgement gate 가 UI 에서 도달 가능해야 함.
      * 서버 단독으로 409 + requires_acknowledgement 만 돌려주면 운영자가 영원히 cancel 못 함.
      */
