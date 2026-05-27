@@ -473,6 +473,16 @@ try {
         if ($affected !== 1) {
             json_err('상태가 이미 변경되었습니다. 페이지를 새로고침 후 확인하세요.', 409);
         }
+
+        // Codex stop-time review (2026-05-27) — 'failed' 로 resolve 시 stale send-cap hold 정리.
+        // needs_manual_review 격리 진입 시점에는 *발송 가능성 보존* 을 위해 hold 유지했지만, 운영자가
+        // 'failed' 로 명시 결정 = *발송 불가 확정* → hold 가 stale 로 남으면 같은 이메일이 미래 캠페인에서
+        // 부당하게 cap 위반 차단. VVIP Suppression 도 동일.
+        if ($as === 'failed') {
+            Suppression::clearForCampaign((string)$id);
+            SendCap::clearForCampaign((string)$id);
+        }
+
         record_status_transition(
             (string)$id,
             'needs_manual_review',

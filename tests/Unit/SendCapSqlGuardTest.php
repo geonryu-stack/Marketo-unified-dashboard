@@ -117,6 +117,44 @@ final class SendCapSqlGuardTest extends TestCase
     }
 
     /**
+     * Codex stop-time review (2026-05-27) — fail 분기에서 hold 정리 누락 회귀 가드.
+     *
+     * bulk_polling 진입 시점에는 추출 + hold 박제 완료 상태. *fail 확정* 시 발송 안 일어남이
+     * 보장되므로 hold 즉시 정리 안전. 누락 시 60K hold 가 영구 stale → 동일 이메일이
+     * 미래 캠페인에서 부당하게 cap 위반 차단.
+     */
+    public function testBulkFailCronCleansSendCapHolds(): void
+    {
+        $cron = (string)file_get_contents(__DIR__ . '/../../cron/check_bulk_imports.php');
+        $this->assertStringContainsString(
+            'SendCap::clearForCampaign',
+            $cron,
+            'bulk fail cron 에서 SendCap::clearForCampaign 호출 회귀 — stale hold 가 영구 cap 위반 차단'
+        );
+        // _mark_bulk_failed 헬퍼 안에 묶여 있는지 (직접 DB::exec status="failed" 가 hold 정리 없이 회귀하면 안 됨)
+        $this->assertMatchesRegularExpression(
+            '/function\s+_mark_bulk_failed\b/',
+            $cron,
+            'bulk fail 공통 헬퍼가 사라짐 — 4 곳에서 정리 누락 회귀 위험'
+        );
+    }
+
+    /**
+     * Codex stop-time review — resolve-review 의 'failed' 분기에서 hold 정리.
+     * needs_manual_review 격리 시점에는 hold 보존(수동 발송 가능성), 'failed' 명시 결정 시 정리.
+     */
+    public function testResolveReviewFailedCleansSendCapHolds(): void
+    {
+        $api = (string)file_get_contents(__DIR__ . '/../../api/campaigns.php');
+        // resolve-review 분기 본문에 SendCap::clearForCampaign 호출 + $as === 'failed' 가드 존재
+        $this->assertMatchesRegularExpression(
+            '/\$as\s*===\s*[\'"]failed[\'"][^}]*SendCap::clearForCampaign/s',
+            $api,
+            "resolve-review failed 분기에서 SendCap::clearForCampaign 호출 회귀 — stale hold 미정리"
+        );
+    }
+
+    /**
      * H-2 회귀 — purgeOlderThan 의 안전 하한이 사라지지 않게. 7일 미만 입력은 7일로
      * floor 처리. 운영자가 실수로 1일 입력해도 cap 윈도우 안의 박제 행이 삭제되지 않게.
      */

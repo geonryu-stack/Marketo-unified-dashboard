@@ -12,6 +12,26 @@ require_once __DIR__ . '/../src/helpers.php';
 require_once __DIR__ . '/../src/Marketo/MarketoAPI.php';
 require_once __DIR__ . '/../src/Marketo/MarketoBulkImport.php';
 require_once __DIR__ . '/../src/ScheduleRunner.php'; // CampaignNeedsReviewException 포함
+require_once __DIR__ . '/../src/SendCap.php';        // fail 분기에서 stale hold 정리용
+
+/**
+ * Bulk Import 폴링 안에서 *발송 안 일어남이 확정된* fail 분기들이 공유하는 정리.
+ *
+ * Codex stop-time review (2026-05-27) — bulk fail 시 SendCap::clearForCampaign 누락 →
+ * 60K hold 가 영구 stale 로 남아 미래 캠페인의 동일 이메일이 cap 위반으로 부당 차단.
+ *
+ * 정책: bulk_polling 진입 = 추출 + hold 박제 완료. fail 확정 시 *발송은 안 일어남* 이
+ * 보장되므로 hold 즉시 정리 안전 (sent 박제는 애초에 없음). VVIP Suppression 도 동일.
+ */
+function _mark_bulk_failed(string $campaign_id, string $err_msg, ?string $run_id): void
+{
+    DB::exec(
+        "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
+        [$err_msg, now_str(), $campaign_id]
+    );
+    Suppression::clearForCampaign($campaign_id);
+    SendCap::clearForCampaign($campaign_id);
+}
 
 job_log('Bulk Import 폴링 cron 시작');
 
@@ -67,10 +87,7 @@ foreach ($due as $c) {
 
         if ($job_status === 'Failed') {
             $msg = "Bulk Import 실패 (errors={$err_count}, failed={$failed})";
-            DB::exec(
-                "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
-                [$msg, now_str(), $id]
-            );
+            _mark_bulk_failed((string)$id, $msg, $c['run_id'] ?? null);
             record_status_transition((string)$id, 'bulk_polling', 'failed', 'cron', $msg, $c['run_id'] ?? null);
             job_log($msg, $id, 'bulk_submit', 'error');
             job_log("    → failed");
@@ -84,10 +101,7 @@ foreach ($due as $c) {
             if ($failed > 0) {
                 $msg = "Bulk Import 부분 실패 ({$failed}명 누락) — 자동 진행 차단. " .
                        "Marketo UI에서 실제 누락 leads 확인 후 캠페인을 다시 예약하거나 수동 보정하세요.";
-                DB::exec(
-                    "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
-                    [$msg, now_str(), $id]
-                );
+                _mark_bulk_failed((string)$id, $msg, $c['run_id'] ?? null);
                 record_status_transition((string)$id, 'bulk_polling', 'failed', 'cron', $msg, $c['run_id'] ?? null);
                 job_log($msg, $id, 'bulk_submit', 'error');
                 job_log("    → failed (부분 실패 {$failed}명)");
@@ -112,10 +126,7 @@ foreach ($due as $c) {
             $seg = DB::one('SELECT * FROM segments WHERE id=?', [$c['segment_id']]);
             if (!$seg) {
                 $err = '연결된 세그먼트를 찾을 수 없습니다.';
-                DB::exec(
-                    "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
-                    [$err, now_str(), $id]
-                );
+                _mark_bulk_failed((string)$id, $err, $c['run_id'] ?? null);
                 record_status_transition((string)$id, 'bulk_finalizing', 'failed', 'cron', $err, $c['run_id'] ?? null);
                 job_log($err, $id, 'schedule_ep', 'error');
                 job_log("    ✗ {$err}");
@@ -140,10 +151,7 @@ foreach ($due as $c) {
             } catch (Throwable $e) {
                 // EP 진입 전 실패 (Program ID 미설정 등) — EP 미변경이라 'failed'로 풀어도 안전.
                 $err = "Bulk 완료 후 EP 예약 진입 전 실패: " . $e->getMessage();
-                DB::exec(
-                    "UPDATE campaigns SET status='failed', error_message=?, updated_at=? WHERE id=?",
-                    [$err, now_str(), $id]
-                );
+                _mark_bulk_failed((string)$id, $err, $c['run_id'] ?? null);
                 record_status_transition((string)$id, 'bulk_finalizing', 'failed', 'cron', $err, $c['run_id'] ?? null);
                 job_log($err, $id, 'schedule_ep', 'error');
                 job_log("    ✗ {$err}");
