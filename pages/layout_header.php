@@ -19,6 +19,8 @@ $page_title = ($title ?? 'Marketo Automation') . ' — Marketo Automation';
     <div class="navbar-nav flex-row gap-3">
       <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/segments')) ? 'active fw-bold' : '' ?>"
          href="<?= APP_URL ?>/segments">세그먼트</a>
+      <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/rules')) ? 'active fw-bold' : '' ?>"
+         href="<?= APP_URL ?>/rules">발송 Rule</a>
       <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/campaigns')) ? 'active fw-bold' : '' ?>"
          href="<?= APP_URL ?>/campaigns">캠페인</a>
       <a class="nav-link <?= (str_starts_with($_SERVER['REQUEST_URI'] ?? '', '/marketo-automation/schedules')) ? 'active fw-bold' : '' ?>"

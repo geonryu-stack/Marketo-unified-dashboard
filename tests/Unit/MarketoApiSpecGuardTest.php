@@ -139,7 +139,7 @@ final class MarketoApiSpecGuardTest extends TestCase
      */
     public function testCancelUiHandlesAcknowledgementGate(): void
     {
-        $js = (string)file_get_contents(__DIR__ . '/../../assets/js/campaign.js');
+        $js = (string)file_get_contents(__DIR__ . '/../../assets/js/campaign-actions.js');
         $this->assertStringContainsString(
             'acknowledge_sent',
             $js,

@@ -36,6 +36,86 @@ try {
             'campaigns' => $results,
             'totals'    => aggregate_totals($results),
         ]);
+    } elseif ($action === 'daily') {
+        $weeks = isset($_GET['weeks']) ? max(1, min(12, (int)$_GET['weeks'])) : 4;
+        $since = date('Y-m-d', strtotime("-{$weeks} weeks"));
+        $rows = DB::all(
+            "SELECT stat_date,
+                    SUM(sent) as sent, SUM(delivered) as delivered,
+                    SUM(bounce) as bounce, SUM(open) as `open`,
+                    SUM(click) as click, SUM(unsubscribe) as unsubscribe
+               FROM campaign_daily_stats
+              WHERE stat_date >= ?
+              GROUP BY stat_date
+              ORDER BY stat_date ASC",
+            [$since]
+        );
+        $pct = fn(int $n, int $d) => $d > 0 ? round(($n / $d) * 100, 1) : 0.0;
+        $daily = array_map(function($r) use ($pct) {
+            $sent = (int)$r['sent']; $del = (int)$r['delivered'];
+            return $r + [
+                'delivery_rate' => $pct($del, $sent),
+                'open_rate'     => $pct((int)$r['open'], $del),
+                'ctr'           => $pct((int)$r['click'], $del),
+                'unsub_rate'    => $pct((int)$r['unsubscribe'], $del),
+            ];
+        }, $rows);
+        json_ok(['since' => $since, 'rows' => $daily, 'totals' => aggregate_totals_from_rows($rows)]);
+
+    } elseif ($action === 'weekly') {
+        $weeks = isset($_GET['weeks']) ? max(1, min(24, (int)$_GET['weeks'])) : 8;
+        $since = date('Y-m-d', strtotime("-{$weeks} weeks"));
+        $rows = DB::all(
+            "SELECT YEARWEEK(stat_date, 1) as yw,
+                    MIN(stat_date) as week_start, MAX(stat_date) as week_end,
+                    SUM(sent) as sent, SUM(delivered) as delivered,
+                    SUM(bounce) as bounce, SUM(open) as `open`,
+                    SUM(click) as click, SUM(unsubscribe) as unsubscribe
+               FROM campaign_daily_stats
+              WHERE stat_date >= ?
+              GROUP BY YEARWEEK(stat_date, 1)
+              ORDER BY yw ASC",
+            [$since]
+        );
+        $pct = fn(int $n, int $d) => $d > 0 ? round(($n / $d) * 100, 1) : 0.0;
+        $weekly = array_map(function($r) use ($pct) {
+            $sent = (int)$r['sent']; $del = (int)$r['delivered'];
+            $r['label'] = $r['week_start'] . ' ~ ' . $r['week_end'];
+            return $r + [
+                'delivery_rate' => $pct($del, $sent),
+                'open_rate'     => $pct((int)$r['open'], $del),
+                'ctr'           => $pct((int)$r['click'], $del),
+                'unsub_rate'    => $pct((int)$r['unsubscribe'], $del),
+            ];
+        }, $rows);
+        json_ok(['since' => $since, 'rows' => $weekly, 'totals' => aggregate_totals_from_rows($rows)]);
+
+    } elseif ($action === 'monthly') {
+        $months = isset($_GET['months']) ? max(1, min(12, (int)$_GET['months'])) : 6;
+        $since = date('Y-m-d', strtotime("-{$months} months"));
+        $rows = DB::all(
+            "SELECT DATE_FORMAT(stat_date, '%Y-%m') as month,
+                    SUM(sent) as sent, SUM(delivered) as delivered,
+                    SUM(bounce) as bounce, SUM(open) as `open`,
+                    SUM(click) as click, SUM(unsubscribe) as unsubscribe
+               FROM campaign_daily_stats
+              WHERE stat_date >= ?
+              GROUP BY DATE_FORMAT(stat_date, '%Y-%m')
+              ORDER BY month ASC",
+            [$since]
+        );
+        $pct = fn(int $n, int $d) => $d > 0 ? round(($n / $d) * 100, 1) : 0.0;
+        $monthly = array_map(function($r) use ($pct) {
+            $sent = (int)$r['sent']; $del = (int)$r['delivered'];
+            return $r + [
+                'delivery_rate' => $pct($del, $sent),
+                'open_rate'     => $pct((int)$r['open'], $del),
+                'ctr'           => $pct((int)$r['click'], $del),
+                'unsub_rate'    => $pct((int)$r['unsubscribe'], $del),
+            ];
+        }, $rows);
+        json_ok(['since' => $since, 'rows' => $monthly, 'totals' => aggregate_totals_from_rows($rows)]);
+
     } elseif ($action === 'timeseries' && $id_param) {
         $row = DB::one('SELECT * FROM campaigns WHERE id=?', [$id_param]);
         if (!$row) json_err('캠페인을 찾을 수 없습니다.', 404);
@@ -111,6 +191,22 @@ function aggregate_totals(array $rows): array
     $pct = fn(int $n, int $d) => $d > 0 ? round(($n / $d) * 100, 1) : 0.0;
     return $sum + [
         'campaigns'     => count($rows),
+        'delivery_rate' => $pct($sum['delivered'], $sum['sent']),
+        'open_rate'     => $pct($sum['open'],      $sum['delivered']),
+        'ctr'           => $pct($sum['click'],     $sum['delivered']),
+        'ctor'          => $pct($sum['click'],     $sum['open']),
+        'unsub_rate'    => $pct($sum['unsubscribe'], $sum['delivered']),
+    ];
+}
+
+function aggregate_totals_from_rows(array $rows): array
+{
+    $sum = ['sent' => 0, 'delivered' => 0, 'bounce' => 0, 'open' => 0, 'click' => 0, 'unsubscribe' => 0];
+    foreach ($rows as $r) {
+        foreach (array_keys($sum) as $k) $sum[$k] += (int)$r[$k];
+    }
+    $pct = fn(int $n, int $d) => $d > 0 ? round(($n / $d) * 100, 1) : 0.0;
+    return $sum + [
         'delivery_rate' => $pct($sum['delivered'], $sum['sent']),
         'open_rate'     => $pct($sum['open'],      $sum['delivered']),
         'ctr'           => $pct($sum['click'],     $sum['delivered']),

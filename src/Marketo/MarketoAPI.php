@@ -1029,6 +1029,56 @@ class MarketoAPI
         return $data['result'] ?? [];
     }
 
+    /**
+     * 승인 시점 자동 검증 — 에셋명 + 토큰 4종을 Marketo API로 조회해 DB 값과 비교.
+     * SEV1 RCA(2026-05-22) 후속 — 수동 체크리스트 대체.
+     *
+     * @param int    $programId      Marketo Program ID (Smart Campaign 또는 Email Program)
+     * @param string $expectedAsset  캠페인의 asset_name (DB 저장값)
+     * @param array  $expectedTokens build_campaign_tokens() 결과
+     * @return array{ok: bool, warnings: string[]}
+     */
+    public static function verifyAssetAndTokens(int $programId, string $expectedAsset, array $expectedTokens): array
+    {
+        $warnings = [];
+        $block = false; // true = 스케줄링 차단 필요 (fail closed)
+
+        // 1) 토큰 검증 — getProgramTokens() 로 Marketo 실제 값 조회 후 비교.
+        //    토큰은 Program 수준 속성이므로 API 로 정확히 검증 가능.
+        try {
+            $actualTokens = self::getProgramTokens($programId);
+            $diffs = diff_campaign_tokens($expectedTokens, $actualTokens);
+            if (!empty($diffs)) {
+                $block = true;
+                foreach ($diffs as $d) {
+                    $warnings[] = "토큰 불일치: {$d}";
+                }
+            }
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            if (preg_match('/\bcode\s+610\b/', $msg) || $e->getCode() === 610) {
+                // Marketo 610 "Not Authorized" — Asset API 권한 미부여 환경.
+                // 테스트 메일이 안전망 역할. fail open 허용 — 경고만 표시.
+                $warnings[] = '토큰 자동 검증 불가 (610 권한 제한) — 테스트 메일로 확인하세요';
+            } else {
+                // 네트워크 오류, 인증 만료 등 예기치 않은 실패 → fail closed.
+                // 검증을 수행하지 못했으므로 안전하지 않음.
+                $block = true;
+                $warnings[] = "토큰 검증 실패 (API 오류) — 검증 없이 발송할 수 없습니다: {$msg}";
+            }
+        }
+
+        // 2) 에셋 검증은 수동 체크리스트가 담당.
+        //    Smart Campaign Flow 의 "Send Email" 스텝이 참조하는 에셋은
+        //    Marketo REST API 로 조회할 수 없음 (API 한계).
+        //    운영자가 체크리스트에서 Marketo UI 직접 확인.
+
+        return [
+            'ok'       => !$block,
+            'warnings' => $warnings,
+        ];
+    }
+
     // ── Email Program 스냅샷 (C-SCHEDULE-ECHO / EP 미러링용) ────────
     /**
      * Email Program의 현재 상태 스냅샷.

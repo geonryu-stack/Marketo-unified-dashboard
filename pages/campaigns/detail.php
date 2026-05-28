@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../src/SendCap.php';
 $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
 if (!$c) { header('Location: ' . APP_URL . '/campaigns'); exit; }
 $title   = '캠페인: ' . htmlspecialchars($c['name']);
-$scripts = ['campaign.js'];
+$scripts = ['campaign-ui.js', 'campaign-actions.js', 'campaign-polling.js'];
 include __DIR__ . '/../layout_header.php';
 
 // 추출 예정 시각 계산 (send_time - 16h)
@@ -327,42 +327,6 @@ try {
             </div>
           </div>
 
-          <?php
-            $ss_path = $c['test_screenshot_path'] ?? null;
-            $ss_url  = $ss_path ? (rtrim(APP_URL, '/') . '/' . ltrim((string)$ss_path, '/')) : null;
-          ?>
-          <div class="mb-3 border rounded p-2 bg-light" id="screenshot-slot">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <strong class="small">📸 테스트 메일 스크린샷 첨부 (선택)</strong>
-              <small class="text-muted">jpg / png / webp · 5MB 이하 · 결재 흔적 보존용</small>
-            </div>
-            <?php if ($ss_url): ?>
-              <div class="d-flex align-items-start gap-3">
-                <a href="<?= htmlspecialchars($ss_url) ?>" target="_blank" rel="noopener">
-                  <img src="<?= htmlspecialchars($ss_url) ?>" alt="테스트 메일 스크린샷"
-                       style="max-width:200px;max-height:140px;border:1px solid #ddd;border-radius:4px;">
-                </a>
-                <div class="flex-grow-1">
-                  <div class="small text-muted text-break mb-2"><code><?= htmlspecialchars($ss_path) ?></code></div>
-                  <input type="file" class="form-control form-control-sm mb-2" id="screenshot-file"
-                         accept="image/jpeg,image/png,image/webp">
-                  <button type="button" class="btn btn-outline-secondary btn-sm"
-                          onclick="campaign.uploadScreenshot()">재첨부</button>
-                </div>
-              </div>
-            <?php else: ?>
-              <div class="d-flex align-items-end gap-2">
-                <input type="file" class="form-control form-control-sm" id="screenshot-file"
-                       accept="image/jpeg,image/png,image/webp">
-                <button type="button" class="btn btn-outline-primary btn-sm"
-                        onclick="campaign.uploadScreenshot()">첨부</button>
-              </div>
-              <small class="text-muted d-block mt-1">
-                테스트 메일을 받은 메일 클라이언트에서 캡처한 이미지를 올리면, 추후 감사·재발견 시 어떤 화면을 승인했는지 확인할 수 있습니다.
-              </small>
-            <?php endif; ?>
-          </div>
-
           <div class="mb-3">
             <strong class="small">📋 발송 전 체크리스트</strong>
             <div class="form-check mt-2">
@@ -392,21 +356,11 @@ try {
             <div class="form-check border-top pt-2 mt-2">
               <input class="form-check-input approval-check" type="checkbox" id="chk-marketo-asset">
               <label class="form-check-label" for="chk-marketo-asset">
-                <strong>Marketo UI 에서 발송 Program 에 연결된 *실제 이메일 에셋*이 위에 표시된 <code><?= htmlspecialchars($c['asset_name'] ?? '') ?></code> 와 동일한지 직접 확인했는가</strong>
-                <div class="small text-muted">
-                  (SEV1 RCA 2026-05-22 후속 — Marketo Smart Campaign 이 발송하는 이메일은 본 시스템의 에셋 선택값과 자동 일치하지 않을 수 있음.
-                  발송 Program 의 Flow 탭 → "Send Email" 스텝의 연결 이메일을 직접 눈으로 확인 필수.)
-                </div>
+                Marketo UI에서 발송 Program의 Send Email 에셋이 <code><?= htmlspecialchars($c['asset_name'] ?? '') ?></code> 인지 확인했는가
               </label>
             </div>
-            <div class="form-check">
-              <input class="form-check-input approval-check" type="checkbox" id="chk-marketo-tokens">
-              <label class="form-check-label" for="chk-marketo-tokens">
-                <strong>Marketo UI 에서 발송 Program 의 my.Token 4종(Emoji/Title/Preheader/RewardUrl)이 의도한 값과 일치하는지 직접 확인했는가</strong>
-                <div class="small text-muted">
-                  (운영자 환경에서 C-TOKEN-VERIFY 가 610 권한으로 자동 skip 되는 경우가 있음. 발송 직전 마지막 안전망 — 특히 Preheader 값이 캠페인 생성 시 입력한 텍스트와 동일한지)
-                </div>
-              </label>
+            <div class="small text-muted mt-2">
+              🔍 토큰 4종은 승인 시 Marketo API로 자동 검증됩니다 — 불일치 시 예약이 차단됩니다.
             </div>
           </div>
 
@@ -541,11 +495,25 @@ if ($c['status'] === 'scheduled') {
 </div>
 <?php endif; ?>
 
-<h5>실행 로그</h5>
-<table class="table table-sm bg-white" id="log-table">
-  <thead><tr><th>단계</th><th>상태</th><th>메시지</th><th>시각</th></tr></thead>
-  <tbody id="log-body"></tbody>
-</table>
+<?php
+  $log_auto_expand = in_array($c['status'], ['scheduling', 'bulk_polling', 'bulk_finalizing'], true);
+?>
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center log-collapse-header"
+       data-bs-toggle="collapse" data-bs-target="#log-collapse"
+       role="button" aria-expanded="<?= $log_auto_expand ? 'true' : 'false' ?>">
+    <strong>실행 로그</strong>
+    <span class="badge bg-secondary" id="log-count">0</span>
+  </div>
+  <div class="collapse<?= $log_auto_expand ? ' show' : '' ?>" id="log-collapse">
+    <div class="card-body p-0">
+      <table class="table table-sm mb-0" id="log-table">
+        <thead><tr><th>단계</th><th>상태</th><th>메시지</th><th>시각</th></tr></thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
 <script>
 const APP_URL       = '<?= APP_URL ?>';

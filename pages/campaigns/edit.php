@@ -20,7 +20,7 @@ $default_send = strlen($raw_st) > 5
     ? date('Y-m-d\TH:i', strtotime($raw_st))
     : (date('Y-m-d', strtotime('+1 day')) . 'T' . ($raw_st ?: '10:00'));
 
-$scripts = ['campaign.js'];
+$scripts = ['campaign-ui.js'];
 include __DIR__ . '/../layout_header.php';
 ?>
 <div class="d-flex align-items-center gap-3 mb-3">
@@ -167,7 +167,7 @@ document.getElementById('email-asset-select').addEventListener('change', (e) => 
 loadEmailAssets();
 
 // Sprint 2 ASSET — 라이브 인박스 미리보기 + 프리셋 드롭다운
-// campaign.js는 footer에서 로드되므로 DOMContentLoaded(혹은 이미 끝났으면 즉시) 시점에 호출.
+// campaign-ui.js는 footer에서 로드되므로 DOMContentLoaded(혹은 이미 끝났으면 즉시) 시점에 호출.
 function _bootLivePreview() {
   if (typeof window.initLivePreview === 'function') {
     window.initLivePreview('#edit-form', '#inbox-preview');

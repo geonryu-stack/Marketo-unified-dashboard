@@ -3,7 +3,7 @@
 // G4 — needs_manual_review 격리 큐 통합 대시보드.
 // 운영자가 한 화면에서 격리된 캠페인을 보고 각각 결정 (scheduled / failed) 가능.
 $title   = '격리 큐';
-$scripts = ['campaign.js']; // resolveReview 함수 재사용
+$scripts = ['campaign-actions.js']; // resolveReview 함수 재사용
 include __DIR__ . '/../pages/layout_header.php';
 
 $rows = DB::all(

@@ -24,6 +24,12 @@ $router->add('GET', '/segments/{id}/edit', function ($p) {
     $id = $p['id'];
     include __DIR__ . '/pages/segments/edit.php';
 });
+$router->add('GET', '/rules', function ($p) {
+    include __DIR__ . '/pages/rules/index.php';
+});
+$router->add('ANY', '/api/rules', function ($p) {
+    require_once __DIR__ . '/api/rules.php';
+});
 $router->add('GET', '/campaigns', function ($p) {
     include __DIR__ . '/pages/campaigns/index.php';
 });

@@ -3,13 +3,6 @@
 $title      = '새 세그먼트';
 $field_defs = get_field_defs();
 $scripts    = ['segment-builder.js'];
-// VVIP suppression UI 컴포넌트가 사용할 컨텍스트 — 신규는 본인 ID 없음, 기존 선택값 없음
-$current_seg_id = null;
-$current_supp   = null;
-// 리드별 cap UI 컴포넌트 — 신규는 기본값 사용
-$current_cap_per_day  = 1;
-$current_cap_per_week = 7;
-$current_cap_priority = 100;
 include __DIR__ . '/../layout_header.php';
 ?>
 <h2>새 세그먼트</h2>
@@ -94,9 +87,9 @@ include __DIR__ . '/../layout_header.php';
     </div>
   </div>
 
-  <?php include __DIR__ . '/_suppression_section.php'; ?>
-
-  <?php include __DIR__ . '/_cap_section.php'; ?>
+  <div class="alert alert-info small mt-3">
+    발송 빈도 cap 및 우선순위 설정은 <a href="<?= APP_URL ?>/rules">발송 Rule</a> 페이지에서 관리합니다.
+  </div>
 
   <h5 class="mt-3">반복 발송</h5>
   <div class="row g-3 mb-4">

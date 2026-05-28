@@ -99,3 +99,27 @@ body { background-color: #f8f9fa; }
   70%  { box-shadow: 0 0 0 14px rgba(220, 53, 69, 0); }
   100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
 }
+
+/* 실행 로그 접기/펼치기 */
+.log-collapse-header { cursor: pointer; user-select: none; }
+.log-collapse-header::after {
+  content: '\25B6';
+  font-size: 0.7em;
+  transition: transform 0.2s;
+  margin-left: 0.5rem;
+}
+.log-collapse-header[aria-expanded="true"]::after {
+  transform: rotate(90deg);
+}
+#log-collapse .table { font-size: 0.85rem; }
+
+/* 발송 Rule 페이지 */
+.rules-table input[type="number"] { width: 80px; text-align: center; }
+.rules-table .changed { background-color: #fff3cd; }
+.rules-table .suppress-badges .badge { font-size: 0.75em; margin: 1px; }
+.suppress-summary { font-size: 0.85rem; }
+.suppress-summary .arrow { color: #0d6efd; font-weight: 600; }
+
+/* 발송결과 차트 */
+.chart-container { position: relative; height: 320px; width: 100%; }
+.view-tabs .nav-link.active { font-weight: 600; border-bottom: 2px solid #0d6efd; }

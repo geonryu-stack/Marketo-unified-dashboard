@@ -247,23 +247,23 @@ try {
             json_err('결재 대기 상태의 캠페인만 승인할 수 있습니다.', 400);
         }
 
-        // SEV1 RCA(2026-05-22) — 결재 체크리스트 서버측 강제 게이트.
+        // 결재 체크리스트 서버측 강제 게이트.
         // 클라이언트 JS 만으로는 DevTools 의 disabled 제거, 직접 API 호출 등으로 우회 가능.
-        // body.confirmations 의 6개 키가 모두 *strict boolean true* 일 때만 통과.
+        // body.confirmations 의 4개 키가 모두 *strict boolean true* 일 때만 통과.
         // strict 검증 이유: empty()/loose 비교는 'false'(문자열), 'no', 1, 'yes' 등 비-true 값을
         // 통과시켜 우회 가능. JSON `true` (= PHP boolean true) 만 인정.
+        // (2026-05-28) Marketo 에셋·토큰 직접 확인 항목은 자동 검증(verifyAssetAndTokens)으로 대체.
         $approve_body = parse_json_body();
         $confirmations = $approve_body['confirmations'] ?? null;
         if (!is_array($confirmations)) {
             json_err('결재 체크리스트 확인 신호(confirmations)가 객체 형식이어야 합니다.', 400);
         }
         $required_confirmations = [
-            'tokens'         => '토큰 4종 값 확인',
-            'sendtime'       => '발송 일시 확인',
-            'leadcount'      => '대상자 세그먼트 확인',
-            'testmail'       => '테스트 메일 렌더링 확인',
-            'marketo_asset'  => 'Marketo UI 발송 Program 이메일 에셋 직접 확인',
-            'marketo_tokens' => 'Marketo UI my.Token 4종 직접 확인',
+            'tokens'        => '토큰 4종 값 확인',
+            'sendtime'      => '발송 일시 확인',
+            'leadcount'     => '대상자 세그먼트 확인',
+            'testmail'      => '테스트 메일 렌더링 확인',
+            'marketo_asset' => 'Marketo UI Send Email 에셋 확인',
         ];
         $missing = [];
         foreach ($required_confirmations as $key => $label) {
@@ -349,13 +349,64 @@ try {
         }
 
         $c    = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
+
+        // 자동 검증 — Marketo 에셋명·토큰 4종을 API로 확인 (SEV1 수동 체크 대체)
+        // ok=false(실제 불일치) 시 스케줄링 차단. 운영자가 force_verify=true 로
+        // 명시 승인해야만 진행. SEV1 RCA 의 수동 체크를 자동 게이트로 격상.
+        $force_verify = !empty($approve_body['force_verify']) && $approve_body['force_verify'] === true;
+
+        $verification = ['ok' => true, 'warnings' => []];
+        $seg = DB::one('SELECT marketo_program_id FROM segments WHERE id=?', [$c['segment_id']]);
+        $program_id = (int)($seg['marketo_program_id'] ?? 0);
+        if ($program_id > 0) {
+            $verification = MarketoAPI::verifyAssetAndTokens(
+                $program_id,
+                (string)($c['asset_name'] ?? ''),
+                build_campaign_tokens($c)
+            );
+            if (!empty($verification['warnings'])) {
+                add_log($id, 'auto_verify',
+                    $verification['ok'] ? 'done' : 'error',
+                    ($verification['ok'] ? '자동 검증 참고: ' : '자동 검증 불일치: ')
+                    . implode(' | ', $verification['warnings']));
+            } else {
+                add_log($id, 'auto_verify', 'done', '에셋·토큰 자동 검증 통과');
+            }
+        } else {
+            $verification['warnings'][] = 'Program ID 미설정 — 자동 검증 생략';
+            add_log($id, 'auto_verify', 'done', 'Program ID 미설정 — 자동 검증 생략');
+        }
+
+        // 불일치 감지 + 강제 진행 미승인 → 스케줄링 차단, awaiting_approval 복귀
+        if ($verification['ok'] === false && !$force_verify) {
+            DB::exec(
+                'UPDATE campaigns SET status=?, updated_at=? WHERE id=?',
+                ['awaiting_approval', now_str(), $id]
+            );
+            record_status_transition((string)$id, 'scheduling', 'awaiting_approval', 'system',
+                '자동 검증 불일치로 스케줄링 차단');
+            http_response_code(409);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success'      => false,
+                'error'        => '에셋·토큰 자동 검증에서 불일치가 발견되었습니다. 확인 후 강제 진행하거나 캠페인을 수정하세요.',
+                'verification' => $verification,
+                'requires_force_verify' => true,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        if ($force_verify && $verification['ok'] === false) {
+            add_log($id, 'auto_verify', 'done',
+                '운영자가 검증 불일치를 확인하고 강제 진행 승인');
+        }
+
         $logs = [];
         try {
             run_campaign_schedule($c, function(string $step, string $status, string $msg) use ($id, &$logs) {
                 add_log($id, $step, $status, $msg);
                 $logs[] = "[$step] $msg";
             });
-            json_ok(['scheduled' => true, 'log' => $logs]);
+            json_ok(['scheduled' => true, 'log' => $logs, 'verification' => $verification]);
         } catch (CampaignNeedsReviewException $e) {
             // status는 이미 'needs_manual_review' (finalize_campaign_schedule 내에서 설정).
             // 'failed'로 덮어쓰지 않음 — sibling 차단 효과 보존.

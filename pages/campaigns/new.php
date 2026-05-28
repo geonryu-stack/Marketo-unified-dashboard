@@ -12,7 +12,7 @@ if ($clone_from) {
 $email_lib_program_id = (defined('MARKETO_EMAIL_ASSET_LIBRARY_ID') && (int)MARKETO_EMAIL_ASSET_LIBRARY_ID > 0)
     ? (int)MARKETO_EMAIL_ASSET_LIBRARY_ID : 0;
 
-$scripts = ['campaign.js'];
+$scripts = ['campaign-ui.js'];
 include __DIR__ . '/../layout_header.php';
 ?>
 <h2>새 캠페인</h2>
@@ -173,12 +173,12 @@ document.getElementById('email-asset-select').addEventListener('change', (e) => 
 loadEmailAssets();
 
 // Sprint 2 ASSET — 라이브 인박스 미리보기 + 프리셋 드롭다운
-// campaign.js는 footer에서 로드되므로 DOMContentLoaded(혹은 이미 끝났으면 즉시) 시점에 호출.
+// campaign-ui.js는 footer에서 로드되므로 DOMContentLoaded(혹은 이미 끝났으면 즉시) 시점에 호출.
 function _bootLivePreview() {
   if (typeof window.initLivePreview === 'function') {
     window.initLivePreview('#campaign-form', '#inbox-preview');
   } else {
-    // campaign.js 로드 전이라면 다시 시도
+    // campaign-ui.js 로드 전이라면 다시 시도
     setTimeout(_bootLivePreview, 50);
   }
 }
