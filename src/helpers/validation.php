@@ -58,3 +58,56 @@ function assert_campaign_input(array $body): void
         json_err('입력 검증 실패: ' . implode('; ', $errors), 400);
     }
 }
+
+// ── 세그먼트 유형 (IMPROVEMENT_SPEC #1 Option A) ─────────────────
+
+const SEGMENT_TYPES = ['active', 'reengagement', 'transactional', 'lifecycle', 'custom'];
+
+/**
+ * 세그먼트 유형 입력값을 검증. 빈값/null이면 $default 반환.
+ * 허용값 외이면 json_err(400).
+ */
+function validate_segment_type(mixed $raw, string $default = 'active'): string
+{
+    if ($raw === null || $raw === '') return $default;
+    $val = (string)$raw;
+    if (!in_array($val, SEGMENT_TYPES, true)) {
+        json_err('segment type은 ' . implode(', ', SEGMENT_TYPES) . ' 중 하나여야 합니다.', 400);
+    }
+    return $val;
+}
+
+/**
+ * 유형별 preview 가드 힌트. 운영자가 consent_guard 설정을 올바르게 하도록 안내.
+ * 추출 시점에는 적용되지 않으며, 정보 제공만 한다.
+ */
+function get_segment_type_guard_hint(string $type): array
+{
+    return match ($type) {
+        'active' => [
+            'type'                      => 'active',
+            'message'                   => '활성 유저 세그먼트: 동의 + 활성 가드가 적용됩니다.',
+            'recommended_consent_guard' => true,
+        ],
+        'reengagement' => [
+            'type'                      => 'reengagement',
+            'message'                   => 'Re-engagement 세그먼트: consent_guard를 OFF하고, is_active=0 필터를 추가하는 것을 권장합니다.',
+            'recommended_consent_guard' => false,
+        ],
+        'transactional' => [
+            'type'                      => 'transactional',
+            'message'                   => '거래성 알림 세그먼트: 법적 필수 발송이므로 가드를 최소화할 수 있습니다.',
+            'recommended_consent_guard' => false,
+        ],
+        'lifecycle' => [
+            'type'                      => 'lifecycle',
+            'message'                   => '라이프사이클 세그먼트: 동의 + 활성 가드 권장. 이벤트 기간 필터가 설정되었는지 확인하세요.',
+            'recommended_consent_guard' => true,
+        ],
+        default => [
+            'type'                      => $type,
+            'message'                   => '',
+            'recommended_consent_guard' => true,
+        ],
+    };
+}

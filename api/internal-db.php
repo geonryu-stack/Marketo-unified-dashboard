@@ -59,6 +59,12 @@ elseif ($action === 'preview' && $method === 'POST') {
             'consent_guard_applied' => $consent_guard,
         ];
 
+        // 세그먼트 유형별 가드 힌트 (IMPROVEMENT_SPEC #1)
+        $seg_type = (string)($body['segment_type'] ?? '');
+        if ($seg_type !== '') {
+            $resp['guard_hint'] = get_segment_type_guard_hint($seg_type);
+        }
+
         // 2) 표본 미리보기 (옵션) — 최대 10건, PII 마스킹
         if ($want_sample) {
             $sample_sql = "

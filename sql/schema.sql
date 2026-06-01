@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `segments` (
   `id` VARCHAR(36) NOT NULL,
   `name` VARCHAR(255) NOT NULL,
   `description` TEXT,
+  `type` VARCHAR(20) NOT NULL DEFAULT 'active',
   `filters` TEXT NOT NULL,
   `suppresses_segment_ids` TEXT NOT NULL DEFAULT ('[]') COMMENT 'VVIP 등 우선순위 높은 세그먼트가 같은 날 다른 세그먼트 모수에서 자신을 제외시키기 위한 링크. JSON array of segment IDs.',
   `last_count` INT DEFAULT NULL,

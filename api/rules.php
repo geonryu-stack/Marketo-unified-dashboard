@@ -57,7 +57,7 @@ try {
     $pdo->commit();
 
     // 갱신된 전체 목록 반환
-    $all = DB::all('SELECT id, name, cap_per_day, cap_per_week, cap_priority, suppresses_segment_ids FROM segments ORDER BY cap_priority DESC, name ASC');
+    $all = DB::all('SELECT id, name, type, cap_per_day, cap_per_week, cap_priority, suppresses_segment_ids FROM segments ORDER BY cap_priority DESC, name ASC');
     json_ok($all);
 
 } catch (Throwable $e) {
