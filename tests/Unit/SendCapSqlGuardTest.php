@@ -155,15 +155,15 @@ final class SendCapSqlGuardTest extends TestCase
     }
 
     /**
-     * H-2 회귀 — purgeOlderThan 의 안전 하한이 사라지지 않게. 7일 미만 입력은 7일로
-     * floor 처리. 운영자가 실수로 1일 입력해도 cap 윈도우 안의 박제 행이 삭제되지 않게.
+     * H-2 회귀 — purgeOlderThan 의 안전 하한이 사라지지 않게. 31일 미만 입력은 31일로
+     * floor 처리. 운영자가 실수로 짧은 값 입력해도 월간 cap 윈도우 안 박제 행이 삭제되지 않게.
      */
     public function testPurgeHasSafetyFloor(): void
     {
         $this->assertMatchesRegularExpression(
-            '/if\s*\(\s*\$days\s*<\s*7\s*\)/',
+            '/if\s*\(\s*\$days\s*<\s*31\s*\)/',
             self::$src,
-            'purgeOlderThan 의 7일 안전 하한 가드가 제거됨 → 운영자 실수로 윈도우 안 행 삭제 위험'
+            'purgeOlderThan 의 31일 안전 하한 가드가 제거됨 → 운영자 실수로 윈도우 안 행 삭제 위험'
         );
     }
 }

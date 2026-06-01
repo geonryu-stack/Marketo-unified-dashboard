@@ -97,19 +97,20 @@ api_handle(function (string $method, ?string $id, ?string $action, array $params
         $new_id = new_uuid();
         $suppresses_json = Suppression::sanitizeInput($body['suppresses_segment_ids'] ?? [], $new_id);
         $seg_type     = validate_segment_type($body['type'] ?? null);
-        $cap_per_day  = sanitize_cap_int($body['cap_per_day']  ?? null, 1);
-        $cap_per_week = sanitize_cap_int($body['cap_per_week'] ?? null, 7);
-        $cap_priority = sanitize_cap_int($body['cap_priority'] ?? null, 100);
+        $cap_per_day   = sanitize_cap_int($body['cap_per_day']   ?? null, 3);
+        $cap_per_week  = sanitize_cap_int($body['cap_per_week']  ?? null, 5);
+        $cap_per_month = sanitize_cap_int($body['cap_per_month'] ?? null, 15);
+        $cap_priority  = sanitize_cap_int($body['cap_priority']  ?? null, 100);
         DB::exec(
             'INSERT INTO segments
              (id, name, description, type, filters, suppresses_segment_ids,
               marketo_program_id, marketo_audience_list_id, marketo_email_program_id,
-              is_recurring, cap_per_day, cap_per_week, cap_priority,
+              is_recurring, cap_per_day, cap_per_week, cap_per_month, cap_priority,
               send_day_of_week, recurring_send_time,
               default_email_id, default_asset_name, default_reward_url,
               default_emoji, default_send_time, default_name_prefix,
               created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             [
                 $new_id,
                 $body['name'] ?? '',
@@ -121,7 +122,7 @@ api_handle(function (string $method, ?string $id, ?string $action, array $params
                 $body['marketo_audience_list_id'] ?? '',
                 $body['marketo_email_program_id'] ?? '',
                 (int)($body['is_recurring'] ?? 0),
-                $cap_per_day, $cap_per_week, $cap_priority,
+                $cap_per_day, $cap_per_week, $cap_per_month, $cap_priority,
                 (int)($body['send_day_of_week'] ?? 1),
                 $body['recurring_send_time'] ?? '10:00',
                 $body['default_email_id']    ?? '',
@@ -152,14 +153,15 @@ api_handle(function (string $method, ?string $id, ?string $action, array $params
             : ($existing['suppresses_segment_ids'] ?? '[]');
         $now = now_str();
         $seg_type     = validate_segment_type($body['type'] ?? null, $existing['type'] ?? 'active');
-        $cap_per_day  = sanitize_cap_int($body['cap_per_day']  ?? null, (int)$existing['cap_per_day']);
-        $cap_per_week = sanitize_cap_int($body['cap_per_week'] ?? null, (int)$existing['cap_per_week']);
-        $cap_priority = sanitize_cap_int($body['cap_priority'] ?? null, (int)$existing['cap_priority']);
+        $cap_per_day   = sanitize_cap_int($body['cap_per_day']   ?? null, (int)$existing['cap_per_day']);
+        $cap_per_week  = sanitize_cap_int($body['cap_per_week']  ?? null, (int)$existing['cap_per_week']);
+        $cap_per_month = sanitize_cap_int($body['cap_per_month'] ?? null, (int)($existing['cap_per_month'] ?? 15));
+        $cap_priority  = sanitize_cap_int($body['cap_priority']  ?? null, (int)$existing['cap_priority']);
         DB::exec(
             'UPDATE segments SET
              name=?, description=?, type=?, filters=?, suppresses_segment_ids=?,
              marketo_program_id=?, marketo_audience_list_id=?, marketo_email_program_id=?,
-             is_recurring=?, cap_per_day=?, cap_per_week=?, cap_priority=?,
+             is_recurring=?, cap_per_day=?, cap_per_week=?, cap_per_month=?, cap_priority=?,
              send_day_of_week=?, recurring_send_time=?,
              default_email_id=?, default_asset_name=?, default_reward_url=?,
              default_emoji=?, default_send_time=?, default_name_prefix=?,
@@ -175,7 +177,7 @@ api_handle(function (string $method, ?string $id, ?string $action, array $params
                 $body['marketo_audience_list_id'] ?? $existing['marketo_audience_list_id'],
                 $body['marketo_email_program_id'] ?? $existing['marketo_email_program_id'],
                 isset($body['is_recurring'])      ? (int)$body['is_recurring']      : (int)$existing['is_recurring'],
-                $cap_per_day, $cap_per_week, $cap_priority,
+                $cap_per_day, $cap_per_week, $cap_per_month, $cap_priority,
                 isset($body['send_day_of_week'])  ? (int)$body['send_day_of_week']  : (int)$existing['send_day_of_week'],
                 $body['recurring_send_time'] ?? $existing['recurring_send_time'],
                 $body['default_email_id']    ?? $existing['default_email_id'],

@@ -38,9 +38,10 @@ try {
             throw new RuntimeException('존재하지 않는 세그먼트 ID: ' . $seg['id']);
         }
 
-        $cap_per_day  = sanitize_cap_int($seg['cap_per_day']  ?? null, 1);
-        $cap_per_week = sanitize_cap_int($seg['cap_per_week'] ?? null, 7);
-        $cap_priority = sanitize_cap_int($seg['cap_priority'] ?? null, 100);
+        $cap_per_day   = sanitize_cap_int($seg['cap_per_day']   ?? null, 3);
+        $cap_per_week  = sanitize_cap_int($seg['cap_per_week']  ?? null, 5);
+        $cap_per_month = sanitize_cap_int($seg['cap_per_month'] ?? null, 15);
+        $cap_priority  = sanitize_cap_int($seg['cap_priority']  ?? null, 100);
 
         // suppresses_segment_ids 검증
         $supp_json = '[]';
@@ -49,15 +50,15 @@ try {
         }
 
         DB::exec(
-            'UPDATE segments SET cap_per_day = ?, cap_per_week = ?, cap_priority = ?, suppresses_segment_ids = ?, updated_at = ? WHERE id = ?',
-            [$cap_per_day, $cap_per_week, $cap_priority, $supp_json, now_str(), $seg['id']]
+            'UPDATE segments SET cap_per_day = ?, cap_per_week = ?, cap_per_month = ?, cap_priority = ?, suppresses_segment_ids = ?, updated_at = ? WHERE id = ?',
+            [$cap_per_day, $cap_per_week, $cap_per_month, $cap_priority, $supp_json, now_str(), $seg['id']]
         );
     }
 
     $pdo->commit();
 
     // 갱신된 전체 목록 반환
-    $all = DB::all('SELECT id, name, type, cap_per_day, cap_per_week, cap_priority, suppresses_segment_ids FROM segments ORDER BY cap_priority DESC, name ASC');
+    $all = DB::all('SELECT id, name, type, cap_per_day, cap_per_week, cap_per_month, cap_priority, suppresses_segment_ids FROM segments ORDER BY cap_priority DESC, name ASC');
     json_ok($all);
 
 } catch (Throwable $e) {
