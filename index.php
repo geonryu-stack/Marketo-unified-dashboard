@@ -7,6 +7,7 @@ require_once __DIR__ . '/src/Router.php';
 require_once __DIR__ . '/src/DB.php';
 require_once __DIR__ . '/src/InternalDB.php';
 require_once __DIR__ . '/src/helpers.php';
+require_once __DIR__ . '/src/ApiBase.php';
 
 $router = new Router();
 

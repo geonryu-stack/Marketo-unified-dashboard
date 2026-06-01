@@ -3,12 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../src/Marketo/MarketoAPI.php';
 
-$method = $_SERVER['REQUEST_METHOD'];
-$params = $GLOBALS['route_params'] ?? [];
-$id     = $params['id'] ?? null;
-$action = $params['action'] ?? null;
-
-try {
+api_handle(function (string $method, ?string $id, ?string $action, array $params): void {
     // GET /api/schedules?week=YYYY-MM-DD
     if ($method === 'GET' && !$id) {
         $week = $_GET['week'] ?? date('Y-m-d');
@@ -77,6 +72,4 @@ try {
     else {
         json_err('Not Found', 404);
     }
-} catch (Throwable $e) {
-    json_err($e->getMessage(), 500);
-}
+});

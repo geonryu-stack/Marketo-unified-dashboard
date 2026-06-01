@@ -3,16 +3,11 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../src/Suppression.php';
 
-$method = $_SERVER['REQUEST_METHOD'];
-$params = $GLOBALS['route_params'] ?? [];
-$id     = $params['id'] ?? null;
-// index.php는 INFRA zone(동결)이라 새 라우트를 추가하지 않고 query param으로 분기.
-//   GET /api/segments/{id}?action=cohort&limit=5 → cohort 추세 응답
-$query_action = $_GET['action'] ?? null;
+api_handle(function (string $method, ?string $id, ?string $action, array $params): void {
+    // index.php는 INFRA zone(동결)이라 새 라우트를 추가하지 않고 query param으로 분기.
+    //   GET /api/segments/{id}?action=cohort&limit=5 → cohort 추세 응답
+    $query_action = $_GET['action'] ?? null;
 
-// sanitize_cap_int() は src/helpers/validation.php に統合済み (Phase 2)
-
-try {
     // GET /api/segments — 목록
     if ($method === 'GET' && !$id) {
         $rows = DB::all('SELECT * FROM segments ORDER BY created_at DESC');
@@ -200,6 +195,4 @@ try {
     else {
         json_err('Not Found', 404);
     }
-} catch (Throwable $e) {
-    json_err($e->getMessage(), 500);
-}
+});

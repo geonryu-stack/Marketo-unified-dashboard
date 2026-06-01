@@ -1,15 +1,14 @@
 <?php
 // api/segment-latest-tokens.php — Post-S3 #3
 // 새 캠페인 페이지에서 segment 선택 시 직전 sent 회차의 토큰 4종을 자동 채움.
-// PII 무관(콘텐츠 토큰만 반환). reward_url은 매 회차 갱신 가능성이 높아 참고용.
 declare(strict_types=1);
 
-$segment_id = $GLOBALS['route_params']['id'] ?? '';
-if ($segment_id === '') {
-    json_err('segment id 필요', 400);
-}
+api_handle(function (string $method, ?string $id, ?string $action, array $params): void {
+    $segment_id = $params['id'] ?? '';
+    if ($segment_id === '') {
+        json_err('segment id 필요', 400);
+    }
 
-try {
     $row = DB::one(
         "SELECT id, name, send_time, emoji, email_title, email_preheader, reward_url
          FROM campaigns
@@ -33,6 +32,4 @@ try {
             ],
         ]);
     }
-} catch (Throwable $e) {
-    json_err($e->getMessage(), 500);
-}
+}, ['allowed_methods' => ['GET']]);
