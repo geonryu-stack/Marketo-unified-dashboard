@@ -161,6 +161,7 @@ try {
     // POST /api/campaigns — 생성 후 즉시 테스트 메일 발송
     elseif ($method === 'POST' && !$id) {
         $body    = parse_json_body();
+        assert_campaign_input($body); // C-INPUT-SANITY
         $send_ts = parse_send_time($body['send_time'] ?? '');
         if (!$send_ts) json_err('발송 일시를 입력하세요.', 400);
         if ($send_ts < time() + 16 * 3600) json_err('발송 일시는 현재 시각으로부터 최소 16시간 이후여야 합니다.', 400);
@@ -204,6 +205,7 @@ try {
         }
 
         $body    = parse_json_body();
+        assert_campaign_input($body); // C-INPUT-SANITY
         $send_ts = parse_send_time($body['send_time'] ?? '');
         if (!$send_ts) json_err('발송 일시를 입력하세요.', 400);
         if ($send_ts < time() + 16 * 3600) json_err('발송 일시는 현재 시각으로부터 최소 16시간 이후여야 합니다.', 400);
@@ -241,182 +243,7 @@ try {
 
     // POST /api/campaigns/{id}/approve — 결재 승인 → 즉시 Marketo 예약 (동기 실행)
     elseif ($method === 'POST' && $id && $action === 'approve') {
-        $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
-        if (!$c) json_err('캠페인을 찾을 수 없습니다.', 404);
-        if ($c['status'] !== 'awaiting_approval') {
-            json_err('결재 대기 상태의 캠페인만 승인할 수 있습니다.', 400);
-        }
-
-        // 결재 체크리스트 서버측 강제 게이트.
-        // 클라이언트 JS 만으로는 DevTools 의 disabled 제거, 직접 API 호출 등으로 우회 가능.
-        // body.confirmations 의 4개 키가 모두 *strict boolean true* 일 때만 통과.
-        // strict 검증 이유: empty()/loose 비교는 'false'(문자열), 'no', 1, 'yes' 등 비-true 값을
-        // 통과시켜 우회 가능. JSON `true` (= PHP boolean true) 만 인정.
-        // (2026-05-28) Marketo 에셋·토큰 직접 확인 항목은 자동 검증(verifyAssetAndTokens)으로 대체.
-        $approve_body = parse_json_body();
-        $confirmations = $approve_body['confirmations'] ?? null;
-        if (!is_array($confirmations)) {
-            json_err('결재 체크리스트 확인 신호(confirmations)가 객체 형식이어야 합니다.', 400);
-        }
-        $required_confirmations = [
-            'tokens'        => '토큰 4종 값 확인',
-            'sendtime'      => '발송 일시 확인',
-            'leadcount'     => '대상자 세그먼트 확인',
-            'testmail'      => '테스트 메일 렌더링 확인',
-            'marketo_asset' => 'Marketo UI Send Email 에셋 확인',
-        ];
-        $missing = [];
-        foreach ($required_confirmations as $key => $label) {
-            // strict: array 에 키가 있고 그 값이 정확히 boolean true 여야 함.
-            // 'true'(문자열), 1, 'yes' 등은 모두 거부 → 우회 시도 차단.
-            if (!array_key_exists($key, $confirmations) || $confirmations[$key] !== true) {
-                $missing[] = $label;
-            }
-        }
-        if (!empty($missing)) {
-            json_err(
-                '결재 체크리스트가 완료되지 않았습니다. 다음 항목을 확인 후 다시 시도하세요: '
-                . implode(' / ', $missing),
-                400
-            );
-        }
-
-        // CAS: 세그먼트 내 모든 캠페인을 일괄 잠근 후 충돌 검사
-        // ORDER BY id 로 일관된 잠금 순서 → 교착(deadlock) 방지
-        // 'scheduling' 상태도 충돌로 취급 → 두 탭에서 동시 승인 차단
-        $db = DB::get();
-        $db->beginTransaction();
-        try {
-            $seg_rows = DB::all(
-                'SELECT id, status, name FROM campaigns WHERE segment_id=? ORDER BY id FOR UPDATE',
-                [$c['segment_id']]
-            );
-            $current  = null;
-            $conflict = null;
-            foreach ($seg_rows as $row) {
-                if ($row['id'] === $id) {
-                    $current = $row;
-                } elseif (in_array($row['status'], ['scheduled', 'scheduling', 'bulk_polling', 'bulk_finalizing', 'needs_manual_review'], true)) {
-                    $conflict = $row;
-                }
-            }
-            if (!$current || $current['status'] !== 'awaiting_approval') {
-                $db->rollBack();
-                json_err('상태가 변경되었습니다. 페이지를 새로고침 후 다시 시도하세요.', 409);
-            }
-            if ($conflict) {
-                $db->rollBack();
-                http_response_code(409);
-                header('Content-Type: application/json');
-                echo json_encode([
-                    'success'       => false,
-                    'error'         => "동일 세그먼트 캠페인 \"{$conflict['name']}\"이 예약 처리 중 또는 예약 완료 상태입니다.",
-                    'conflict_id'   => $conflict['id'],
-                    'conflict_name' => $conflict['name'],
-                ], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
-
-            // VVIP→Active 같은 날 충돌 차단 — 본 캠페인이 suppressor 이면 suppress 대상 세그먼트의
-            // 같은 날 활성 캠페인 1건만 조회. 있으면 409 후 운영자가 Active 취소·재예약 유도.
-            $my_seg    = DB::one('SELECT suppresses_segment_ids FROM segments WHERE id=?', [$c['segment_id']]);
-            $targets   = Suppression::decode($my_seg['suppresses_segment_ids'] ?? null);
-            $send_date = Suppression::extractSendDate((string)($c['send_time'] ?? ''));
-            $blocking  = Suppression::findBlockingActiveCampaign($send_date, $targets);
-            if ($blocking) {
-                $db->rollBack();
-                http_response_code(409);
-                header('Content-Type: application/json');
-                echo json_encode([
-                    'success'       => false,
-                    'error'         => "같은 날({$send_date}) 우선순위 낮은 세그먼트 \"{$blocking['segment_name']}\"의 캠페인 \"{$blocking['name']}\"이 이미 예약 진행 중입니다. " .
-                                       'Active 캠페인을 취소한 뒤 VVIP를 먼저 예약하세요.',
-                    'conflict_id'   => $blocking['id'],
-                    'conflict_name' => $blocking['name'],
-                ], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
-
-            DB::exec(
-                'UPDATE campaigns SET status=?, approved_at=?, updated_at=? WHERE id=?',
-                ['scheduling', now_str(), now_str(), $id]
-            );
-            $db->commit();
-            record_status_transition((string)$id, 'awaiting_approval', 'scheduling', 'user', '운영자 승인');
-        } catch (Throwable $e) {
-            if ($db->inTransaction()) $db->rollBack();
-            json_err($e->getMessage(), 500);
-        }
-
-        $c    = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
-
-        // 자동 검증 — Marketo 에셋명·토큰 4종을 API로 확인 (SEV1 수동 체크 대체)
-        // ok=false(실제 불일치) 시 스케줄링 차단. 운영자가 force_verify=true 로
-        // 명시 승인해야만 진행. SEV1 RCA 의 수동 체크를 자동 게이트로 격상.
-        $force_verify = !empty($approve_body['force_verify']) && $approve_body['force_verify'] === true;
-
-        $verification = ['ok' => true, 'warnings' => []];
-        $seg = DB::one('SELECT marketo_program_id FROM segments WHERE id=?', [$c['segment_id']]);
-        $program_id = (int)($seg['marketo_program_id'] ?? 0);
-        if ($program_id > 0) {
-            $verification = MarketoAPI::verifyAssetAndTokens(
-                $program_id,
-                (string)($c['asset_name'] ?? ''),
-                build_campaign_tokens($c)
-            );
-            if (!empty($verification['warnings'])) {
-                add_log($id, 'auto_verify',
-                    $verification['ok'] ? 'done' : 'error',
-                    ($verification['ok'] ? '자동 검증 참고: ' : '자동 검증 불일치: ')
-                    . implode(' | ', $verification['warnings']));
-            } else {
-                add_log($id, 'auto_verify', 'done', '에셋·토큰 자동 검증 통과');
-            }
-        } else {
-            $verification['warnings'][] = 'Program ID 미설정 — 자동 검증 생략';
-            add_log($id, 'auto_verify', 'done', 'Program ID 미설정 — 자동 검증 생략');
-        }
-
-        // 불일치 감지 + 강제 진행 미승인 → 스케줄링 차단, awaiting_approval 복귀
-        if ($verification['ok'] === false && !$force_verify) {
-            DB::exec(
-                'UPDATE campaigns SET status=?, updated_at=? WHERE id=?',
-                ['awaiting_approval', now_str(), $id]
-            );
-            record_status_transition((string)$id, 'scheduling', 'awaiting_approval', 'system',
-                '자동 검증 불일치로 스케줄링 차단');
-            http_response_code(409);
-            header('Content-Type: application/json');
-            echo json_encode([
-                'success'      => false,
-                'error'        => '에셋·토큰 자동 검증에서 불일치가 발견되었습니다. 확인 후 강제 진행하거나 캠페인을 수정하세요.',
-                'verification' => $verification,
-                'requires_force_verify' => true,
-            ], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-        if ($force_verify && $verification['ok'] === false) {
-            add_log($id, 'auto_verify', 'done',
-                '운영자가 검증 불일치를 확인하고 강제 진행 승인');
-        }
-
-        $logs = [];
-        try {
-            run_campaign_schedule($c, function(string $step, string $status, string $msg) use ($id, &$logs) {
-                add_log($id, $step, $status, $msg);
-                $logs[] = "[$step] $msg";
-            });
-            json_ok(['scheduled' => true, 'log' => $logs, 'verification' => $verification]);
-        } catch (CampaignNeedsReviewException $e) {
-            // status는 이미 'needs_manual_review' (finalize_campaign_schedule 내에서 설정).
-            // 'failed'로 덮어쓰지 않음 — sibling 차단 효과 보존.
-            add_log($id, 'error', 'error', $e->getMessage());
-            json_err($e->getMessage(), 500);
-        } catch (Throwable $e) {
-            set_campaign_status($id, 'failed', $e->getMessage());
-            add_log($id, 'error', 'error', $e->getMessage());
-            json_err($e->getMessage(), 500);
-        }
+        handle_approve($id, parse_json_body());
     }
 
     // POST /api/campaigns/{id}/reject — 결재 거절 → draft 복귀
@@ -547,137 +374,20 @@ try {
 
     // POST /api/campaigns/{id}/cancel — Marketo 예약 취소 → awaiting_approval 복귀
     elseif ($method === 'POST' && $id && $action === 'cancel') {
-        $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
-        if (!$c) json_err('캠페인을 찾을 수 없습니다.', 404);
-        if ($c['status'] !== 'scheduled') json_err('예약된 캠페인만 취소할 수 있습니다.', 400);
-        // marketo_email_program_id 컬럼은 send_mode 에 따라 EP ID 또는 SC ID 를 저장.
-        // 비어있으면 자동 취소 불가 → fake cancel 방지.
-        if (empty($c['marketo_email_program_id'])) {
-            json_err(
-                'Marketo Program/Campaign ID가 비어있어 자동 취소 불가. ' .
-                'Marketo UI에서 직접 unapprove (EP) 또는 schedule 제거 (SC) 후, 본 캠페인을 삭제하거나 재시작하세요.',
-                400
-            );
-        }
-
-        // H-3 — cancel 시점에 *이미 sent 박제된 행* 이 있는지 확인 (code-reviewer 보고).
-        // 일반 케이스: 'scheduled' 상태는 발송 전이라 sent 행 없음. 그러나 send_time 직후 cancel
-        // (5분 윈도우) 의 race 에서 cron Activity 폴링이 일부 leads 를 이미 sent 박제했을 수 있음.
-        // 그 경우 운영자는 *일부 수신자는 이미 받았다* 는 사실을 알아야 cancel 결정 가능.
-        // body.acknowledge_sent=true 가 명시되지 않으면 confirm 요청으로 409 응답.
-        $sent_row = DB::one(
-            "SELECT COUNT(*) AS cnt FROM lead_send_history WHERE campaign_id=? AND state='sent'",
-            [$id]
-        );
-        $sent_n = (int)($sent_row['cnt'] ?? 0);
-        if ($sent_n > 0) {
-            $cancel_body  = parse_json_body();
-            $acknowledged = !empty($cancel_body['acknowledge_sent']) && $cancel_body['acknowledge_sent'] === true;
-            if (!$acknowledged) {
-                http_response_code(409);
-                header('Content-Type: application/json');
-                echo json_encode([
-                    'success'              => false,
-                    'error'                => "이미 {$sent_n}명이 본 캠페인 이메일을 받았습니다. cancel 은 *남은 발송* 만 중지합니다. 진행하려면 acknowledge_sent=true 로 다시 요청하세요.",
-                    'already_sent_count'   => $sent_n,
-                    'requires_acknowledgement' => true,
-                ], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
-        }
-
-        // SEV1 follow-up — send_mode 분기 (code-reviewer C-1, Codex stop-time review).
-        //
-        // 과거 코드: 모드 무관하게 unapproveEmailProgram → SC 모드에서는 잘못된 리소스 호출.
-        // 1차 수정: SC 모드 시 Marketo 호출 skip → *실제 발송은 그대로 일어남* (fake cancel SEV1급).
-        // 2차 수정 (본 코드): SC 모드 시 schedule API 로 runAt 을 *먼 미래* 로 reschedule →
-        //                     실제 Marketo 발송 자체 중단 + 운영자에게 UI 수동 처리 안내.
-        //
-        // Marketo REST API 한계: scheduled SC 를 *deactivate/cancel 하는 endpoint 가 없음*.
-        // schedule API 로 runAt 갱신만 가능. de-facto cancel = +2년-7일 후 reschedule.
-        $send_mode = defined('MARKETO_SEND_MODE') ? MARKETO_SEND_MODE : 'smart_campaign';
-        $marketo_id = (int)$c['marketo_email_program_id'];
-        $note      = '';
-        $reschedule_failed = false;
-        if ($send_mode === 'smart_campaign') {
-            try {
-                MarketoAPI::rescheduleSmartCampaignFarFuture($marketo_id);
-                $note = '운영자 예약 취소 (Smart Campaign — runAt 을 +2년 후로 reschedule 하여 발송 중지. UI 수동 schedule 제거 권장)';
-            } catch (Throwable $e) {
-                // reschedule 실패 = *발송 그대로 일어날 위험*. 시스템 DB 도 'scheduled' 그대로 두고
-                // 운영자에게 명시적 수동 처리 강제. fake cancel 가능성 차단.
-                $reschedule_failed = true;
-                json_err(
-                    'Marketo Smart Campaign reschedule 실패 — 발송이 중지되지 않았을 수 있습니다. ' .
-                    'Marketo UI 에서 즉시 schedule 을 직접 제거하세요. (오류: ' . $e->getMessage() . ')',
-                    502
-                );
-            }
-        } else {
-            // Email Program 모드 — 기존 동작 유지.
-            MarketoAPI::unapproveEmailProgram($marketo_id);
-            $note = '운영자 예약 취소 (EP unapprove)';
-        }
-
-        DB::exec('UPDATE campaigns SET status=?, marketo_email_program_id=NULL, updated_at=? WHERE id=?',
-            ['awaiting_approval', now_str(), $id]);
-        // suppressor 였다면 박제 행 정리 — 같은 날 Active 의 NOT IN 이 잘못 축소되는 것 방지.
-        Suppression::clearForCampaign((string)$id);
-        // 리드별 cap 의 hold 점유도 해제 — cancel 후 다른 캠페인이 동일 이메일 즉시 추출 가능.
-        SendCap::clearForCampaign((string)$id);
-        record_status_transition((string)$id, 'scheduled', 'awaiting_approval', 'user', $note);
-
-        $payload = ['cancelled' => true];
-        if ($send_mode === 'smart_campaign') {
-            $payload['marketo_action'] = 'rescheduled_far_future';
-            $payload['manual_action_required'] =
-                'Marketo 발송은 +2년 후로 reschedule 되어 *발송 중지* 되었습니다. ' .
-                '깔끔한 정리를 위해 Marketo UI 에서 해당 Smart Campaign 의 schedule 자체를 직접 제거 권장.';
-        }
-        json_ok($payload);
+        handle_cancel($id);
     }
 
     // POST /api/campaigns/{id}/duplicate — 복제 + 테스트 메일 즉시 발송
     elseif ($method === 'POST' && $id && $action === 'duplicate') {
-        $src = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
-        if (!$src) json_err('캠페인을 찾을 수 없습니다.', 404);
-
-        $raw_st  = $src['send_time'] ?? '';
-        $time_hm = strlen($raw_st) > 5 ? date('H:i', strtotime($raw_st)) : ($raw_st ?: '10:00');
-        // scheduled_at(=send_time-16h)이 현재보다 미래가 될 때까지 하루씩 순방향 탐색
-        $send_ts = strtotime(date('Y-m-d', strtotime('+1 day')) . 'T' . $time_hm);
-        while ($send_ts - 16 * 3600 < time()) {
-            $send_ts += 86400;
-        }
-        $new_send_time = date('Y-m-d\TH:i', $send_ts);
-        $new_id        = new_uuid();
-        $now           = now_str();
-        $new_name      = preg_replace('/\d{4}-\d{2}-\d{2}/', date('Y-m-d'), $src['name']);
-
-        DB::exec(
-            'INSERT INTO campaigns
-             (id, name, segment_id, segment_name, asset_name, reward_url, emoji,
-              email_title, email_preheader,
-              scheduled_at, send_time, marketo_cloned_email_id,
-              status, lead_count, created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,\'draft\',0,?,?)',
-            [
-                $new_id, $new_name,
-                $src['segment_id'], $src['segment_name'],
-                $src['asset_name'], $src['reward_url'], $src['emoji'] ?? '',
-                $src['email_title'] ?? '', $src['email_preheader'] ?? '',
-                date('Y-m-d H:i:s', $send_ts - 16 * 3600),
-                $new_send_time,
-                $src['marketo_cloned_email_id'],
-                $now, $now,
-            ]
-        );
-        run_test_email_flow($new_id);
-        json_ok(['id' => $new_id]);
+        handle_duplicate($id);
     }
 
     // DELETE /api/campaigns/{id}
     elseif ($method === 'DELETE' && $id && !$action) {
+        // L2: DELETE 전에 현재 status 조회 → status_transition 기록
+        $before = DB::one('SELECT status FROM campaigns WHERE id=?', [$id]);
+        $prev_status = $before['status'] ?? null;
+
         DB::exec('DELETE FROM campaigns WHERE id=?', [$id]);
         DB::exec('DELETE FROM job_logs WHERE campaign_id=?', [$id]);
         Suppression::clearForCampaign((string)$id); // suppressor 였을 경우 잔여 행 정리
@@ -685,6 +395,8 @@ try {
         // sent 박제도 함께 지우려면 별도 DELETE 가 필요하지만, hold 만 정리해도 cap 의도(hold 점유 해제) 충족.
         // 운영자가 "삭제된 캠페인의 사후 통계" 필요 시 sent 행은 30일 cleanup 까지 보존되는 편이 안전.
         SendCap::clearForCampaign((string)$id);
+
+        record_status_transition((string)$id, $prev_status, 'deleted', 'user', '캠페인 삭제');
         json_ok(null);
     }
 
@@ -694,6 +406,305 @@ try {
 
 } catch (Throwable $e) {
     json_err($e->getMessage(), 500);
+}
+
+// ── 핸들러 함수 (Phase 4 추출) ───────────────────────────────────
+
+function handle_approve(string $id, array $approve_body): void
+{
+    $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
+    if (!$c) json_err('캠페인을 찾을 수 없습니다.', 404);
+    if ($c['status'] !== 'awaiting_approval') {
+        json_err('결재 대기 상태의 캠페인만 승인할 수 있습니다.', 400);
+    }
+
+    // 결재 체크리스트 서버측 강제 게이트.
+    // 클라이언트 JS 만으로는 DevTools 의 disabled 제거, 직접 API 호출 등으로 우회 가능.
+    // body.confirmations 의 4개 키가 모두 *strict boolean true* 일 때만 통과.
+    // strict 검증 이유: empty()/loose 비교는 'false'(문자열), 'no', 1, 'yes' 등 비-true 값을
+    // 통과시켜 우회 가능. JSON `true` (= PHP boolean true) 만 인정.
+    // (2026-05-28) Marketo 에셋·토큰 직접 확인 항목은 자동 검증(verifyAssetAndTokens)으로 대체.
+    $confirmations = $approve_body['confirmations'] ?? null;
+    if (!is_array($confirmations)) {
+        json_err('결재 체크리스트 확인 신호(confirmations)가 객체 형식이어야 합니다.', 400);
+    }
+    $required_confirmations = [
+        'tokens'        => '토큰 4종 값 확인',
+        'sendtime'      => '발송 일시 확인',
+        'leadcount'     => '대상자 세그먼트 확인',
+        'testmail'      => '테스트 메일 렌더링 확인',
+        'marketo_asset' => 'Marketo UI Send Email 에셋 확인',
+    ];
+    $missing = [];
+    foreach ($required_confirmations as $key => $label) {
+        // strict: array 에 키가 있고 그 값이 정확히 boolean true 여야 함.
+        // 'true'(문자열), 1, 'yes' 등은 모두 거부 → 우회 시도 차단.
+        if (!array_key_exists($key, $confirmations) || $confirmations[$key] !== true) {
+            $missing[] = $label;
+        }
+    }
+    if (!empty($missing)) {
+        json_err(
+            '결재 체크리스트가 완료되지 않았습니다. 다음 항목을 확인 후 다시 시도하세요: '
+            . implode(' / ', $missing),
+            400
+        );
+    }
+
+    // CAS: 세그먼트 내 모든 캠페인을 일괄 잠근 후 충돌 검사
+    // ORDER BY id 로 일관된 잠금 순서 → 교착(deadlock) 방지
+    // 'scheduling' 상태도 충돌로 취급 → 두 탭에서 동시 승인 차단
+    $db = DB::get();
+    $db->beginTransaction();
+    try {
+        $seg_rows = DB::all(
+            'SELECT id, status, name FROM campaigns WHERE segment_id=? ORDER BY id FOR UPDATE',
+            [$c['segment_id']]
+        );
+        $current  = null;
+        $conflict = null;
+        foreach ($seg_rows as $row) {
+            if ($row['id'] === $id) {
+                $current = $row;
+            } elseif (in_array($row['status'], ['scheduled', 'scheduling', 'bulk_polling', 'bulk_finalizing', 'needs_manual_review'], true)) {
+                $conflict = $row;
+            }
+        }
+        if (!$current || $current['status'] !== 'awaiting_approval') {
+            $db->rollBack();
+            json_err('상태가 변경되었습니다. 페이지를 새로고침 후 다시 시도하세요.', 409);
+        }
+        if ($conflict) {
+            $db->rollBack();
+            http_response_code(409);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success'       => false,
+                'error'         => "동일 세그먼트 캠페인 \"{$conflict['name']}\"이 예약 처리 중 또는 예약 완료 상태입니다.",
+                'conflict_id'   => $conflict['id'],
+                'conflict_name' => $conflict['name'],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        // VVIP→Active 같은 날 충돌 차단 — 본 캠페인이 suppressor 이면 suppress 대상 세그먼트의
+        // 같은 날 활성 캠페인 1건만 조회. 있으면 409 후 운영자가 Active 취소·재예약 유도.
+        $my_seg    = DB::one('SELECT suppresses_segment_ids FROM segments WHERE id=?', [$c['segment_id']]);
+        $targets   = Suppression::decode($my_seg['suppresses_segment_ids'] ?? null);
+        $send_date = Suppression::extractSendDate((string)($c['send_time'] ?? ''));
+        $blocking  = Suppression::findBlockingActiveCampaign($send_date, $targets);
+        if ($blocking) {
+            $db->rollBack();
+            http_response_code(409);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success'       => false,
+                'error'         => "같은 날({$send_date}) 우선순위 낮은 세그먼트 \"{$blocking['segment_name']}\"의 캠페인 \"{$blocking['name']}\"이 이미 예약 진행 중입니다. " .
+                                   'Active 캠페인을 취소한 뒤 VVIP를 먼저 예약하세요.',
+                'conflict_id'   => $blocking['id'],
+                'conflict_name' => $blocking['name'],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        DB::exec(
+            'UPDATE campaigns SET status=?, approved_at=?, updated_at=? WHERE id=?',
+            ['scheduling', now_str(), now_str(), $id]
+        );
+        $db->commit();
+        record_status_transition((string)$id, 'awaiting_approval', 'scheduling', 'user', '운영자 승인');
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        json_err($e->getMessage(), 500);
+    }
+
+    $c    = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
+
+    // 자동 검증 — Marketo 에셋명·토큰 4종을 API로 확인 (SEV1 수동 체크 대체)
+    // ok=false(실제 불일치) 시 스케줄링 차단. 운영자가 force_verify=true 로
+    // 명시 승인해야만 진행. SEV1 RCA 의 수동 체크를 자동 게이트로 격상.
+    $force_verify = !empty($approve_body['force_verify']) && $approve_body['force_verify'] === true;
+
+    $verification = ['ok' => true, 'warnings' => []];
+    $seg = DB::one('SELECT marketo_program_id FROM segments WHERE id=?', [$c['segment_id']]);
+    $program_id = (int)($seg['marketo_program_id'] ?? 0);
+    if ($program_id > 0) {
+        $verification = MarketoAPI::verifyAssetAndTokens(
+            $program_id,
+            (string)($c['asset_name'] ?? ''),
+            build_campaign_tokens($c)
+        );
+        if (!empty($verification['warnings'])) {
+            add_log($id, 'auto_verify',
+                $verification['ok'] ? 'done' : 'error',
+                ($verification['ok'] ? '자동 검증 참고: ' : '자동 검증 불일치: ')
+                . implode(' | ', $verification['warnings']));
+        } else {
+            add_log($id, 'auto_verify', 'done', '에셋·토큰 자동 검증 통과');
+        }
+    } else {
+        $verification['warnings'][] = 'Program ID 미설정 — 자동 검증 생략';
+        add_log($id, 'auto_verify', 'done', 'Program ID 미설정 — 자동 검증 생략');
+    }
+
+    // 불일치 감지 + 강제 진행 미승인 → 스케줄링 차단, awaiting_approval 복귀
+    if ($verification['ok'] === false && !$force_verify) {
+        DB::exec(
+            'UPDATE campaigns SET status=?, updated_at=? WHERE id=?',
+            ['awaiting_approval', now_str(), $id]
+        );
+        record_status_transition((string)$id, 'scheduling', 'awaiting_approval', 'system',
+            '자동 검증 불일치로 스케줄링 차단');
+        http_response_code(409);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success'      => false,
+            'error'        => '에셋·토큰 자동 검증에서 불일치가 발견되었습니다. 확인 후 강제 진행하거나 캠페인을 수정하세요.',
+            'verification' => $verification,
+            'requires_force_verify' => true,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    if ($force_verify && $verification['ok'] === false) {
+        add_log($id, 'auto_verify', 'done',
+            '운영자가 검증 불일치를 확인하고 강제 진행 승인');
+    }
+
+    $logs = [];
+    try {
+        run_campaign_schedule($c, function(string $step, string $status, string $msg) use ($id, &$logs) {
+            add_log($id, $step, $status, $msg);
+            $logs[] = "[$step] $msg";
+        });
+        json_ok(['scheduled' => true, 'log' => $logs, 'verification' => $verification]);
+    } catch (CampaignNeedsReviewException $e) {
+        // status는 이미 'needs_manual_review' (finalize_campaign_schedule 내에서 설정).
+        // 'failed'로 덮어쓰지 않음 — sibling 차단 효과 보존.
+        add_log($id, 'error', 'error', $e->getMessage());
+        json_err($e->getMessage(), 500);
+    } catch (Throwable $e) {
+        set_campaign_status($id, 'failed', $e->getMessage());
+        add_log($id, 'error', 'error', $e->getMessage());
+        json_err($e->getMessage(), 500);
+    }
+}
+
+function handle_cancel(string $id): void
+{
+    $c = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
+    if (!$c) json_err('캠페인을 찾을 수 없습니다.', 404);
+    if ($c['status'] !== 'scheduled') json_err('예약된 캠페인만 취소할 수 있습니다.', 400);
+    // marketo_email_program_id 컬럼은 send_mode 에 따라 EP ID 또는 SC ID 를 저장.
+    // 비어있으면 자동 취소 불가 → fake cancel 방지.
+    if (empty($c['marketo_email_program_id'])) {
+        json_err(
+            'Marketo Program/Campaign ID가 비어있어 자동 취소 불가. ' .
+            'Marketo UI에서 직접 unapprove (EP) 또는 schedule 제거 (SC) 후, 본 캠페인을 삭제하거나 재시작하세요.',
+            400
+        );
+    }
+
+    // H-3 — cancel 시점에 *이미 sent 박제된 행* 이 있는지 확인 (code-reviewer 보고).
+    $sent_row = DB::one(
+        "SELECT COUNT(*) AS cnt FROM lead_send_history WHERE campaign_id=? AND state='sent'",
+        [$id]
+    );
+    $sent_n = (int)($sent_row['cnt'] ?? 0);
+    if ($sent_n > 0) {
+        $cancel_body  = parse_json_body();
+        $acknowledged = !empty($cancel_body['acknowledge_sent']) && $cancel_body['acknowledge_sent'] === true;
+        if (!$acknowledged) {
+            http_response_code(409);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success'              => false,
+                'error'                => "이미 {$sent_n}명이 본 캠페인 이메일을 받았습니다. cancel 은 *남은 발송* 만 중지합니다. 진행하려면 acknowledge_sent=true 로 다시 요청하세요.",
+                'already_sent_count'   => $sent_n,
+                'requires_acknowledgement' => true,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
+    // SEV1 follow-up — send_mode 분기 (code-reviewer C-1, Codex stop-time review).
+    //
+    // Marketo REST API 한계: scheduled SC 를 *deactivate/cancel 하는 endpoint 가 없음*.
+    // schedule API 로 runAt 갱신만 가능. de-facto cancel = +2년-7일 후 reschedule.
+    $send_mode = defined('MARKETO_SEND_MODE') ? MARKETO_SEND_MODE : 'smart_campaign';
+    $marketo_id = (int)$c['marketo_email_program_id'];
+    $note      = '';
+    if ($send_mode === 'smart_campaign') {
+        try {
+            MarketoAPI::rescheduleSmartCampaignFarFuture($marketo_id);
+            $note = '운영자 예약 취소 (Smart Campaign — runAt 을 +2년 후로 reschedule 하여 발송 중지. UI 수동 schedule 제거 권장)';
+        } catch (Throwable $e) {
+            // reschedule 실패 = *발송 그대로 일어날 위험*. 시스템 DB 도 'scheduled' 그대로 두고
+            // 운영자에게 명시적 수동 처리 강제. fake cancel 가능성 차단.
+            json_err(
+                'Marketo Smart Campaign reschedule 실패 — 발송이 중지되지 않았을 수 있습니다. ' .
+                'Marketo UI 에서 즉시 schedule 을 직접 제거하세요. (오류: ' . $e->getMessage() . ')',
+                502
+            );
+        }
+    } else {
+        // Email Program 모드 — 기존 동작 유지.
+        MarketoAPI::unapproveEmailProgram($marketo_id);
+        $note = '운영자 예약 취소 (EP unapprove)';
+    }
+
+    DB::exec('UPDATE campaigns SET status=?, marketo_email_program_id=NULL, updated_at=? WHERE id=?',
+        ['awaiting_approval', now_str(), $id]);
+    Suppression::clearForCampaign((string)$id);
+    SendCap::clearForCampaign((string)$id);
+    record_status_transition((string)$id, 'scheduled', 'awaiting_approval', 'user', $note);
+
+    $payload = ['cancelled' => true];
+    if ($send_mode === 'smart_campaign') {
+        $payload['marketo_action'] = 'rescheduled_far_future';
+        $payload['manual_action_required'] =
+            'Marketo 발송은 +2년 후로 reschedule 되어 *발송 중지* 되었습니다. ' .
+            '깔끔한 정리를 위해 Marketo UI 에서 해당 Smart Campaign 의 schedule 자체를 직접 제거 권장.';
+    }
+    json_ok($payload);
+}
+
+function handle_duplicate(string $id): void
+{
+    $src = DB::one('SELECT * FROM campaigns WHERE id=?', [$id]);
+    if (!$src) json_err('캠페인을 찾을 수 없습니다.', 404);
+
+    $raw_st  = $src['send_time'] ?? '';
+    $time_hm = strlen($raw_st) > 5 ? date('H:i', strtotime($raw_st)) : ($raw_st ?: '10:00');
+    // scheduled_at(=send_time-16h)이 현재보다 미래가 될 때까지 하루씩 순방향 탐색
+    $send_ts = strtotime(date('Y-m-d', strtotime('+1 day')) . 'T' . $time_hm);
+    while ($send_ts - 16 * 3600 < time()) {
+        $send_ts += 86400;
+    }
+    $new_send_time = date('Y-m-d\TH:i', $send_ts);
+    $new_id        = new_uuid();
+    $now           = now_str();
+    $new_name      = preg_replace('/\d{4}-\d{2}-\d{2}/', date('Y-m-d'), $src['name']);
+
+    DB::exec(
+        'INSERT INTO campaigns
+         (id, name, segment_id, segment_name, asset_name, reward_url, emoji,
+          email_title, email_preheader,
+          scheduled_at, send_time, marketo_cloned_email_id,
+          status, lead_count, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,\'draft\',0,?,?)',
+        [
+            $new_id, $new_name,
+            $src['segment_id'], $src['segment_name'],
+            $src['asset_name'], $src['reward_url'], $src['emoji'] ?? '',
+            $src['email_title'] ?? '', $src['email_preheader'] ?? '',
+            date('Y-m-d H:i:s', $send_ts - 16 * 3600),
+            $new_send_time,
+            $src['marketo_cloned_email_id'],
+            $now, $now,
+        ]
+    );
+    run_test_email_flow($new_id);
+    json_ok(['id' => $new_id]);
 }
 
 // ── 테스트 메일 플로우 (생성/편집 즉시 실행) ─────────────────────

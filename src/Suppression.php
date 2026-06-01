@@ -118,6 +118,9 @@ class Suppression
         $st_ph  = implode(',', array_fill(0, count(self::ACTIVE_STATES), '?'));
 
         // Step 2 + 3 — campaigns 와 segment_lead_suppressions JOIN. 단일 쿼리.
+        // M3: DATE(c.send_time) non-sargable → range 비교로 변환 (인덱스 활용 가능)
+        $day_start = $send_date . ' 00:00:00';
+        $day_end   = $send_date . ' 23:59:59';
         $sql = "
             SELECT DISTINCT s.email
               FROM segment_lead_suppressions s
@@ -125,10 +128,10 @@ class Suppression
                 ON c.id = s.suppressor_campaign_id
              WHERE s.send_date = ?
                AND s.suppressor_segment_id IN ($seg_ph)
-               AND DATE(c.send_time) = ?
+               AND c.send_time >= ? AND c.send_time <= ?
                AND c.status IN ($st_ph)
         ";
-        $params = array_merge([$send_date], $suppressor_ids, [$send_date], self::ACTIVE_STATES);
+        $params = array_merge([$send_date], $suppressor_ids, [$day_start, $day_end], self::ACTIVE_STATES);
 
         $rows = DB::all($sql, $params);
 
@@ -215,12 +218,16 @@ class Suppression
 
         $seg_ph = implode(',', array_fill(0, count($target_segment_ids), '?'));
         $st_ph  = implode(',', array_fill(0, count(self::ACTIVE_STATES), '?'));
-        $params = array_merge($target_segment_ids, [$send_date], self::ACTIVE_STATES);
+
+        // M3: DATE(send_time) non-sargable → range 비교로 변환
+        $day_start = $send_date . ' 00:00:00';
+        $day_end   = $send_date . ' 23:59:59';
+        $params = array_merge($target_segment_ids, [$day_start, $day_end], self::ACTIVE_STATES);
 
         return DB::one(
             "SELECT id, name, segment_name FROM campaigns
               WHERE segment_id IN ($seg_ph)
-                AND DATE(send_time) = ?
+                AND send_time >= ? AND send_time <= ?
                 AND status IN ($st_ph)
               ORDER BY id LIMIT 1",
             $params

@@ -22,6 +22,9 @@ class MarketoAPI
     /** 토큰 만료 — 캐시 삭제 후 헤더 재구성하여 1회만 즉시 재시도 */
     public const TOKEN_EXPIRED_CODE = 602;
 
+    /** L6: List API 페이지 크기 — 단일 정의 */
+    public const LIST_BATCH_SIZE = 300;
+
     /**
      * 백오프 지연 (초). 길이가 곧 최대 재시도 횟수.
      *
@@ -281,7 +284,7 @@ class MarketoAPI
         }, $leads);
 
         $leadIds = [];
-        foreach (array_chunk($input, 300) as $chunk) {
+        foreach (array_chunk($input, self::LIST_BATCH_SIZE) as $chunk) {
             $body = ['action' => 'createOrUpdate', 'lookupField' => 'email', 'input' => $chunk];
             $data = self::curl('POST', MARKETO_REST_URL . '/v1/leads.json', self::authHeaders(), $body);
             foreach ($data['result'] ?? [] as $r) {
@@ -298,7 +301,7 @@ class MarketoAPI
         $ids  = [];
         $next = null;
         do {
-            $url = MARKETO_REST_URL . "/v1/lists/$listId/leads.json?fields=id&batchSize=300"
+            $url = MARKETO_REST_URL . "/v1/lists/$listId/leads.json?fields=id&batchSize=" . self::LIST_BATCH_SIZE
                  . ($next ? "&nextPageToken=$next" : '');
             $data = self::curl('GET', $url, self::authHeaders());
             foreach ($data['result'] ?? [] as $r) {
@@ -317,7 +320,7 @@ class MarketoAPI
     public static function addLeadsToList(int $listId, array $leadIds): void
     {
         $pace_us = self::pacingMicroseconds(count($leadIds));
-        foreach (array_chunk($leadIds, 300) as $i => $chunk) {
+        foreach (array_chunk($leadIds, self::LIST_BATCH_SIZE) as $i => $chunk) {
             if ($i > 0 && $pace_us > 0) usleep($pace_us);
             $input = array_map(fn($id) => ['id' => $id], $chunk);
             self::curl('POST', MARKETO_REST_URL . "/v1/lists/$listId/leads.json",
@@ -686,17 +689,32 @@ class MarketoAPI
             $token = self::getActivityPagingToken($sinceIso);
         }
 
-        $typeParam  = implode(',', $typeIds);
-        $activities = [];
-        $pages      = 0;
-        $more       = true;
+        $typeParam     = implode(',', $typeIds);
+        $activities    = [];
+        $pages         = 0;
+        $more          = true;
+        $tokenRefreshed = false;  // M-paging-ttl: 1003 재발급 1회 제한
 
         while ($more && $token !== null && $token !== '') {
             $url  = MARKETO_REST_URL . '/v1/activities.json'
                   . '?activityTypeIds=' . $typeParam
                   . '&listId=' . $listId
                   . '&nextPageToken=' . urlencode($token);
-            $data = self::curl('GET', $url, self::authHeaders());
+            try {
+                $data = self::curl('GET', $url, self::authHeaders());
+            } catch (RuntimeException $e) {
+                // M-paging-ttl: 1003 = paging token 만료 (30일 초과).
+                // sinceIso 가 있으면 새 토큰 발급 후 1회 재시도.
+                if (!$tokenRefreshed && $sinceIso !== null && $sinceIso !== ''
+                    && str_contains($e->getMessage(), 'code 1003')) {
+                    $tokenRefreshed = true;
+                    $token      = self::getActivityPagingToken($sinceIso);
+                    $activities = []; // 새 토큰으로 처음부터 재수집
+                    $pages      = 0;
+                    continue;
+                }
+                throw $e;
+            }
             foreach ($data['result'] ?? [] as $act) {
                 $activities[] = $act;
             }
@@ -756,11 +774,14 @@ class MarketoAPI
 
     /**
      * ENGAGEMENT_TYPE_IDS 외부 접근용. cron 이 동일한 typeIds 를 활용하도록 통일.
-     * 향후 운영자 인스턴스에서 다른 ID 매핑이 필요하면 config 의 MARKETO_ACTIVITY_IDS 로
-     * 오버라이드 가능하도록 확장 여지. 현재는 표준 매핑 그대로 노출.
+     * M-act-type: config/config.php 에 MARKETO_ACTIVITY_IDS 가 정의되어 있으면
+     * 해당 값으로 override. 운영자 인스턴스에서 표준과 다른 ID 매핑일 때 대응.
      */
     public static function engagementTypeIds(): array
     {
+        if (defined('MARKETO_ACTIVITY_IDS') && is_array(MARKETO_ACTIVITY_IDS)) {
+            return array_merge(self::ENGAGEMENT_TYPE_IDS, MARKETO_ACTIVITY_IDS);
+        }
         return self::ENGAGEMENT_TYPE_IDS;
     }
 

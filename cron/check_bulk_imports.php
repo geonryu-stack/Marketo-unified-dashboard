@@ -159,8 +159,21 @@ foreach ($due as $c) {
             continue;
         }
 
-        // 알 수 없는 상태
-        job_log("    ⚠ 알 수 없는 status={$job_status} — 다음 cron까지 대기");
+        // 알 수 없는 상태 — M1: 60분 타임아웃 가드
+        $bulk_started = $c['bulk_started_at'] ?? null;
+        $stuck_min    = 0;
+        if ($bulk_started) {
+            $stuck_min = (time() - strtotime($bulk_started)) / 60;
+        }
+        if ($stuck_min >= 60) {
+            $msg = "Bulk Import unknown status '{$job_status}' 가 {$stuck_min}분 지속 — 자동 failed 격리";
+            _mark_bulk_failed((string)$id, $msg, $c['run_id'] ?? null);
+            record_status_transition((string)$id, 'bulk_polling', 'failed', 'cron', $msg, $c['run_id'] ?? null);
+            job_log($msg, $id, 'bulk_submit', 'error');
+            job_log("    → failed (unknown-status timeout)");
+        } else {
+            job_log("    ⚠ 알 수 없는 status={$job_status} ({$stuck_min}분 경과) — 다음 cron까지 대기");
+        }
     } catch (Throwable $e) {
         // 폴링 자체가 실패한 경우 — DB 상태는 그대로 유지하고 다음 cron에서 재시도
         job_log("    ✗ 폴링 오류 (다음 cron에서 재시도): " . $e->getMessage());

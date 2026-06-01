@@ -211,6 +211,22 @@ function run_rest_path(array $c, int $list_id, array $leads, callable $log): voi
     }
     MarketoAPI::addLeadsToList($list_id, $lead_ids);
     $log('list_refresh', 'done', "리스트 갱신 완료: {$cnt}명");
+
+    // ── C-LIST-INTEGRITY (CRITICS.md §2 ★☆☆) ─────────────────────
+    // addLeadsToList 직후 실제 list 멤버 수를 GET으로 검증.
+    // EP 위험구간 진입 전이므로 throw 시 'failed' 처리 안전.
+    $actual_ids   = MarketoAPI::getListLeadIds($list_id);
+    $actual_count = count($actual_ids);
+    $expect_count = count($lead_ids);
+    if ($actual_count !== $expect_count) {
+        throw new RuntimeException(
+            "C-LIST-INTEGRITY 실패 — Static List({$list_id}) 멤버 수 불일치: "
+            . "기대 {$expect_count}명, 실제 {$actual_count}명. "
+            . 'addLeadsToList 도중 부분 실패가 발생했을 수 있습니다. '
+            . 'Marketo UI에서 Static List 상태를 확인하세요.'
+        );
+    }
+    $log('list_verify', 'done', "C-LIST-INTEGRITY 통과: {$actual_count}명 일치");
 }
 
 /**
@@ -346,9 +362,13 @@ function finalize_campaign_schedule(array $c, array $seg, callable $log): void
         // Marketo가 200을 반환했지만 실제로는 예약이 반영되지 않은 silent failure를 탐지.
         //
         // 위험구간 안에서 발생하므로 실패 시 CampaignNeedsReviewException으로 격리.
-        // smart_campaign 모드는 emailProgram GET 권한이 없는 환경 가정 — verify skip.
+        // L9: Smart Campaign 모드는 Marketo API에 schedule GET endpoint가 없어 echo 검증 불가.
+        //     EP 모드만 GET /emailProgram/{id}/schedule.json으로 실제 예약 상태를 확인한다.
+        //     SC 모드에서는 scheduleSmartCampaign의 200 응답을 신뢰한다 (API 한계).
         if ($send_mode === 'email_program') {
             verify_schedule_echo($id, $ep_id, $send_dt, $log);
+        } else {
+            $log('verify_schedule', 'info', 'SC 모드 — schedule echo 검증 불가 (Marketo API 한계). 200 응답 신뢰.');
         }
 
         DB::exec(

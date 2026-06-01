@@ -10,22 +10,7 @@ $id     = $params['id'] ?? null;
 //   GET /api/segments/{id}?action=cohort&limit=5 → cohort 추세 응답
 $query_action = $_GET['action'] ?? null;
 
-/**
- * 리드별 cap 입력값을 0~9999 정수로 정규화. 음수·NaN 차단.
- * 누락(키 자체 없음) 시 $default 반환. priority 도 동일 범위.
- */
-function sanitize_cap_int(mixed $raw, int $default): int
-{
-    if ($raw === null || $raw === '') return $default;
-    if (!is_numeric($raw)) {
-        json_err('cap 값은 0 이상 9999 이하의 정수여야 합니다.', 400);
-    }
-    $n = (int)$raw;
-    if ($n < 0 || $n > 9999) {
-        json_err('cap 값은 0 이상 9999 이하의 정수여야 합니다.', 400);
-    }
-    return $n;
-}
+// sanitize_cap_int() は src/helpers/validation.php に統合済み (Phase 2)
 
 try {
     // GET /api/segments — 목록
@@ -44,13 +29,14 @@ try {
         if ($limit < 1)  $limit = 5;
         if ($limit > 20) $limit = 20;
 
+        // L1: LIMIT 파라미터화 (int-clamped 이지만 스타일 통일)
         $rows = DB::all(
             'SELECT id, name, send_time, lead_count, sent_count, delivered_count, bounce_count
                FROM campaigns
               WHERE segment_id = ? AND status = ?
               ORDER BY send_time DESC
-              LIMIT ' . $limit,
-            [$id, 'sent']
+              LIMIT ?',
+            [$id, 'sent', $limit]
         );
 
         $campaigns = array_map('compute_cohort_stats', $rows);

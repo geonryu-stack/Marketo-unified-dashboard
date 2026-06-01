@@ -162,8 +162,9 @@ class SendCap
             }
             $in_ph    = implode(',', array_fill(0, count($emails_in), '?'));
             $when_sql = implode(' ', $when_parts);
+            // M5: ELSE lead_id 방어 — unmatched email이 NULL로 덮어써지는 것을 방지
             $sql = "UPDATE lead_send_history
-                       SET lead_id = CASE email $when_sql END
+                       SET lead_id = CASE email $when_sql ELSE lead_id END
                      WHERE campaign_id = ?
                        AND email IN ($in_ph)";
             $params[] = $campaign_id;

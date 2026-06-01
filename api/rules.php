@@ -3,21 +3,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../src/Suppression.php';
 
-// sanitize_cap_int — segments.php 와 동일 로직. 독립 API 파일이므로 자체 정의.
-if (!function_exists('sanitize_cap_int')) {
-    function sanitize_cap_int(mixed $raw, int $default): int
-    {
-        if ($raw === null || $raw === '') return $default;
-        if (!is_numeric($raw)) {
-            json_err('cap 값은 0 이상 9999 이하의 정수여야 합니다.', 400);
-        }
-        $n = (int)$raw;
-        if ($n < 0 || $n > 9999) {
-            json_err('cap 값은 0 이상 9999 이하의 정수여야 합니다.', 400);
-        }
-        return $n;
-    }
-}
+// sanitize_cap_int() は src/helpers/validation.php に統合済み (Phase 2)
 
 $method = $_SERVER['REQUEST_METHOD'];
 

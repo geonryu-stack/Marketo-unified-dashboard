@@ -49,13 +49,13 @@ $rows = DB::all(
         <dl class="row mb-2 small">
           <dt class="col-sm-3">발송 일시</dt>
           <dd class="col-sm-9"><?= htmlspecialchars(substr($c['send_time'] ?? '', 0, 16)) ?></dd>
-          <dt class="col-sm-3">Marketo EP ID</dt>
+          <dt class="col-sm-3">Marketo EP/SC ID</dt>
           <dd class="col-sm-9">
             <?php if (!empty($c['marketo_email_program_id'])): ?>
               <code><?= htmlspecialchars($c['marketo_email_program_id']) ?></code>
-              <small class="text-muted ms-2">Marketo UI 에서 이 EP 상태 직접 확인 필요</small>
+              <small class="text-muted ms-2">Marketo UI 에서 이 EP 또는 SC 상태 직접 확인 필요</small>
             <?php else: ?>
-              <span class="text-muted">없음 (EP 변경 진입 전 실패)</span>
+              <span class="text-muted">없음 (EP/SC 변경 진입 전 실패)</span>
             <?php endif; ?>
           </dd>
           <dt class="col-sm-3">마지막 갱신</dt>

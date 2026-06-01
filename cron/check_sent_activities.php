@@ -242,6 +242,21 @@ foreach ($due as $c) {
             ? ($coverage >= 0.9 ? 'done' : 'timeout')
             : 'polling';
 
+        // ── C-DELIVERY-SANITY (CRITICS.md §2 ★☆☆) ─────────────────
+        // 폴링 종료 시 (sent + bounce) / lead_count 이 0.7 미만이면 Slack 알림.
+        // 이미 발송이 끝난 사후 알림 — status 변경·격리는 하지 않는다.
+        if ($is_done && $lead_count > 0) {
+            $delivery_ratio = ($sent + $bounce) / $lead_count;
+            if ($delivery_ratio < 0.7) {
+                $pct_str = round($delivery_ratio * 100, 1);
+                $sanity_msg = "[C-DELIVERY-SANITY] 캠페인 '{$c['name']}' — "
+                    . "delivery ratio {$pct_str}% (sent={$sent}, bounce={$bounce}, lead_count={$lead_count}). "
+                    . '70% 미만으로 비정상적입니다. Activity API 누락·Static List 변조·lead 비활성 가능성을 점검하세요.';
+                Notifier::slack($sanity_msg, 'warn');
+                job_log("    ⚠ {$sanity_msg}");
+            }
+        }
+
         // 폴링 간격 — truncated 면 1분(즉시 따라잡기), 발송 직후 빠르게, 이후 점진 backoff
         $next_interval = $truncated ? 1 : match(true) {
             $elapsed_min < 60   => 5,
