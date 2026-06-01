@@ -14,7 +14,11 @@ data/
 # PHPUnit 캐시
 /.phpunit.cache/
 
+# IDE
+.vscode/
+
 # Claude Code / superpowers 작업 스크래치
 .claude/settings.local.json
 .claude/worktrees/
 /.superpowers/
+docs/superpowers/
